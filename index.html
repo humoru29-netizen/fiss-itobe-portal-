@@ -671,7 +671,10 @@ function renderGeneralAdmin(view){
         ${tile("👥","Leadership Directory")}
         ${tile("📊","Cross-Level Reports")}
         ${tile("⚙️","Portal Settings")}
-        ${tile("📢","Announcements (Both Levels)")}
+        <div class="tile" onclick="openAnnouncements('general')">
+          <div class="icon">📢</div>
+          <div class="label">Announcements (Both Levels)</div>
+        </div>
       </div>
       <div class="section-title">Accounts</div>
       <div class="card-grid">
@@ -729,8 +732,14 @@ function levelAdminTiles(level){
         <div class="icon">🧾</div>
         <div class="label">Fee Records</div>
       </div>
-      ${tile("📢","Announcements")}
-      ${tile("📄","Report Cards")}
+      <div class="tile" onclick="openAnnouncements('${lvl}')">
+        <div class="icon">📢</div>
+        <div class="label">Announcements</div>
+      </div>
+      <div class="tile" onclick="openReportCards('${lvl}')">
+        <div class="icon">📄</div>
+        <div class="label">Report Cards</div>
+      </div>
     </div>
   `;
 }
@@ -745,7 +754,10 @@ function renderTeacher(){
         <div class="label">Enter Results</div>
       </div>
       ${tile("📊","Class Performance")}
-      ${tile("📢","Announcements")}
+      <div class="tile" onclick="openAnnouncements('view')">
+        <div class="icon">📢</div>
+        <div class="label">Announcements</div>
+      </div>
     </div>
   `;
 }
@@ -764,7 +776,10 @@ function renderStudent(){
         <div class="icon">💳</div>
         <div class="label">Fee Status</div>
       </div>
-      ${tile("📢","Announcements")}
+      <div class="tile" onclick="openAnnouncements('view')">
+        <div class="icon">📢</div>
+        <div class="label">Announcements</div>
+      </div>
     </div>
   `;
 }
@@ -1676,6 +1691,242 @@ async function openStudentFeeStatus(){
       <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
       <div class="field-error">Error loading fee status: ${e.message}</div>
     `;
+  }
+}
+
+/* ============================================================
+   ANNOUNCEMENTS
+   Admins only can post (General Admin can target either level or both;
+   Level Admins are locked to their own level). Everyone can view,
+   filtered to announcements matching their level (or "both").
+============================================================ */
+function openAnnouncements(context){
+  const main = document.getElementById("mainContent");
+  const isAdmin = ["general_admin","primary_admin","secondary_admin"].includes(currentProfile.role);
+  const isGeneralAdmin = currentProfile.role === "general_admin";
+
+  main.innerHTML = `
+    <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
+    <div class="section-title" style="margin-top:12px;">Announcements</div>
+    ${isAdmin ? `
+      <div class="form-group">
+        <label>Title</label>
+        <input type="text" id="annTitle" placeholder="e.g. Mid-Term Break Notice">
+      </div>
+      <div class="form-group">
+        <label>Message</label>
+        <textarea id="annBody" rows="4" style="width:100%; padding:8px; border:1px solid var(--gray-line); border-radius:8px; box-sizing:border-box;" placeholder="Write the announcement..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Audience</label>
+        ${isGeneralAdmin ? `
+          <select id="annLevel">
+            <option value="both">Both Levels</option>
+            <option value="primary">Primary Only</option>
+            <option value="secondary">Secondary Only</option>
+          </select>
+        ` : `<input type="text" value="${currentProfile.level === "primary" ? "Primary Only" : "Secondary Only"}" disabled>
+          <input type="hidden" id="annLevel" value="${currentProfile.level}">`}
+      </div>
+      <div class="field-error" id="annError"></div>
+      <button class="btn-primary" onclick="postAnnouncement()">Post Announcement</button>
+      <div class="section-title" style="margin-top:20px;">Posted Announcements</div>
+    ` : ""}
+    <div id="annListArea"><div class="placeholder-note">Loading...</div></div>
+  `;
+
+  loadAnnouncements();
+}
+
+async function loadAnnouncements(){
+  const area = document.getElementById("annListArea");
+  try{
+    const snap = await db.collection("announcements").orderBy("postedAt","desc").limit(50).get();
+    let anns = [];
+    snap.forEach(doc => anns.push({ id: doc.id, ...doc.data() }));
+
+    const isGeneralAdmin = currentProfile.role === "general_admin";
+    if(!isGeneralAdmin){
+      const myLevel = currentProfile.level;
+      anns = anns.filter(a => a.level === "both" || a.level === myLevel);
+    }
+
+    if(anns.length === 0){
+      area.innerHTML = `<div class="placeholder-note">No announcements yet.</div>`;
+      return;
+    }
+
+    const isAdmin = ["general_admin","primary_admin","secondary_admin"].includes(currentProfile.role);
+    const levelLabel = l => l === "both" ? "Both Levels" : l.charAt(0).toUpperCase() + l.slice(1);
+
+    area.innerHTML = anns.map(a => `
+      <div style="border:1px solid var(--gray-line); border-radius:8px; padding:10px 12px; margin-bottom:8px;">
+        <div style="display:flex; justify-content:space-between; align-items:start; gap:8px;">
+          <div style="font-weight:700; overflow-wrap:anywhere;">${a.title}</div>
+          ${isAdmin ? `<button class="btn-secondary" style="color:#b00020; flex-shrink:0;" onclick="deleteAnnouncement('${a.id}')">Delete</button>` : ""}
+        </div>
+        <div style="font-size:12px; color:#666; margin:4px 0;">${levelLabel(a.level)} · ${a.postedAt ? new Date(a.postedAt).toLocaleDateString() : ""}</div>
+        <div style="white-space:pre-wrap; overflow-wrap:anywhere;">${a.body}</div>
+      </div>
+    `).join("");
+  } catch(e){
+    area.innerHTML = `<div class="field-error">Error loading announcements: ${e.message}</div>`;
+  }
+}
+
+async function postAnnouncement(){
+  const errBox = document.getElementById("annError");
+  errBox.textContent = "";
+  const title = document.getElementById("annTitle").value.trim();
+  const body = document.getElementById("annBody").value.trim();
+  const level = document.getElementById("annLevel").value;
+
+  if(!title || !body){
+    errBox.textContent = "Please fill in both title and message.";
+    return;
+  }
+
+  try{
+    await db.collection("announcements").add({
+      title, body, level,
+      postedBy: currentUser.uid, postedByName: currentProfile.name || "",
+      postedAt: new Date().toISOString()
+    });
+    document.getElementById("annTitle").value = "";
+    document.getElementById("annBody").value = "";
+    loadAnnouncements();
+  } catch(e){
+    errBox.textContent = "Error posting: " + e.message;
+  }
+}
+
+async function deleteAnnouncement(id){
+  if(!confirm("Delete this announcement? This cannot be undone.")) return;
+  try{
+    await db.collection("announcements").doc(id).delete();
+    loadAnnouncements();
+  } catch(e){
+    alert("Error deleting: " + e.message);
+  }
+}
+
+/* ============================================================
+   REPORT CARDS
+   Pulls each student's released results for a chosen term/session
+   and produces a printable report card (reuses #printArea).
+============================================================ */
+function openReportCards(context){
+  const main = document.getElementById("mainContent");
+  const classList = classListForLevel(context === "general" ? "both" : context);
+
+  main.innerHTML = `
+    <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
+    <div class="section-title" style="margin-top:12px;">Report Cards</div>
+    <div class="form-group">
+      <label>Class</label>
+      <select id="rcClass">${classList.map(c => `<option value="${c}">${c}</option>`).join("")}</select>
+    </div>
+    <div class="form-group">
+      <label>Term</label>
+      <select id="rcTerm">${TERMS.map(t => `<option value="${t}">${t}</option>`).join("")}</select>
+    </div>
+    <div class="form-group">
+      <label>Session</label>
+      <input type="text" id="rcSession" placeholder="e.g. 2025/2026">
+    </div>
+    <button class="btn-primary" onclick="loadReportCardStudents()">Load Students</button>
+    <div class="field-error" id="rcError"></div>
+    <div id="rcListArea" style="margin-top:16px;"></div>
+  `;
+}
+
+async function loadReportCardStudents(){
+  const errBox = document.getElementById("rcError");
+  errBox.textContent = "";
+  const cls = document.getElementById("rcClass").value;
+  const term = document.getElementById("rcTerm").value;
+  const session = document.getElementById("rcSession").value.trim();
+
+  if(!session){
+    errBox.textContent = "Please enter the session (e.g. 2025/2026).";
+    return;
+  }
+
+  const area = document.getElementById("rcListArea");
+  area.innerHTML = `<div class="placeholder-note">Loading students...</div>`;
+
+  try{
+    const snap = await db.collection("users").where("role","==","student").where("class","==",cls).get();
+    let students = [];
+    snap.forEach(doc => students.push({ uid: doc.id, ...doc.data() }));
+    students.sort((a,b) => (a.name || "").localeCompare(b.name || ""));
+
+    if(students.length === 0){
+      area.innerHTML = `<div class="placeholder-note">No students found in ${cls}.</div>`;
+      return;
+    }
+
+    area.innerHTML = students.map(s => `
+      <div style="display:flex; justify-content:space-between; align-items:center; border:1px solid var(--gray-line); border-radius:8px; padding:10px 14px; margin-bottom:8px; gap:10px;">
+        <div style="font-weight:600; overflow-wrap:anywhere;">${s.name}</div>
+        <button class="btn-secondary" style="flex-shrink:0;" onclick="printReportCard('${s.uid}', ${JSON.stringify(s.name || "")}, '${cls}', '${term}', ${JSON.stringify(session)})">Print Report Card</button>
+      </div>
+    `).join("");
+  } catch(e){
+    area.innerHTML = `<div class="field-error">Error loading students: ${e.message}</div>`;
+  }
+}
+
+async function printReportCard(studentUid, studentName, cls, term, session){
+  try{
+    const snap = await db.collection("results")
+      .where("studentUid","==",studentUid).where("term","==",term)
+      .where("session","==",session).where("released","==",true)
+      .get();
+
+    let results = [];
+    snap.forEach(doc => results.push(doc.data()));
+    results.sort((a,b) => (a.subject || "").localeCompare(b.subject || ""));
+
+    if(results.length === 0){
+      alert(`No released results found for ${studentName} in ${term} · ${session}.`);
+      return;
+    }
+
+    const rows = results.map(r => `<tr><td>${r.subject}</td><td>${r.ca1}</td><td>${r.ca2}</td><td>${r.exam}</td><td>${r.total}</td><td>${r.grade}</td></tr>`).join("");
+    const avg = (results.reduce((sum, r) => sum + r.total, 0) / results.length).toFixed(1);
+
+    const printArea = document.getElementById("printArea");
+    printArea.innerHTML = `
+      <div style="text-align:center; margin-bottom:14px;">
+        <h2 style="margin:0;">Faith International School, Itobe</h2>
+        <div style="font-style:italic;">"In God We Trust"</div>
+        <div style="margin-top:10px; font-weight:700;">Student Report Card</div>
+      </div>
+      <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:14px;">
+        <div><strong>Name:</strong> ${studentName}</div>
+        <div><strong>Class:</strong> ${cls}</div>
+      </div>
+      <div style="display:flex; justify-content:space-between; margin-bottom:14px; font-size:14px;">
+        <div><strong>Term:</strong> ${term}</div>
+        <div><strong>Session:</strong> ${session}</div>
+      </div>
+      <table>
+        <thead><tr><th>Subject</th><th>CA1 (/20)</th><th>CA2 (/20)</th><th>Exam (/60)</th><th>Total (/100)</th><th>Grade</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div style="margin-top:14px; font-weight:700;">Average Score: ${avg}%</div>
+      <div style="margin-top:40px; display:flex; justify-content:space-between; font-size:13px;">
+        <div>_____________________<br>Class Teacher's Signature</div>
+        <div>_____________________<br>Admin's Signature</div>
+      </div>
+      <div style="text-align:center; margin-top:20px; font-size:11px; color:#555;">Printed: ${new Date().toLocaleDateString()}</div>
+    `;
+
+    document.body.classList.add("printing");
+    window.print();
+  } catch(e){
+    alert("Error generating report card: " + e.message);
   }
 }
 
