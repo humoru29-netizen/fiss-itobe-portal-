@@ -509,6 +509,23 @@ const SECONDARY_SUBJECTS = ["Mathematics","English","Basic Science","Civic Educa
 
 const TERMS = ["First Term","Second Term","Third Term"];
 
+function termOptionsHTML(){
+  return TERMS.map(t => `<option value="${t}" ${t === defaultTerm ? "selected" : ""}>${t}</option>`).join("");
+}
+
+async function loadPortalSettings(){
+  try{
+    const doc = await db.collection("settings").doc("current").get();
+    if(doc.exists){
+      const d = doc.data();
+      defaultTerm = d.term || "";
+      defaultSession = d.session || "";
+    }
+  } catch(e){
+    // Non-critical — forms just fall back to blank/first option if this fails.
+  }
+}
+
 function waecGrade(total){
   if(total >= 75) return { grade: "A1", remark: "Excellent" };
   if(total >= 70) return { grade: "B2", remark: "Very Good" };
@@ -535,6 +552,8 @@ let resultsApprovalContext = "general"; // "general" | "primary" | "secondary"
 let currentResultsBatch = []; // rows currently loaded in teacher-entry or admin-approval screen
 let feeManagerContext = "cashier"; // "cashier" | "primary" | "secondary" | "general"
 let currentFeeBatch = [];
+let defaultTerm = "";
+let defaultSession = "";
 
 /* ---------------- LOGIN / LOGOUT ---------------- */
 function handleLogin(){
@@ -584,6 +603,7 @@ async function loadUserProfile(uid){
       return;
     }
     currentProfile = doc.data(); // { name, role, level, email }
+    loadPortalSettings();
     enterPortal();
   } catch(e){
     document.getElementById("loginError").textContent = "Error loading profile: " + e.message;
@@ -668,9 +688,18 @@ function renderGeneralAdmin(view){
       </div>
       <div class="section-title">General Admin Tools</div>
       <div class="card-grid">
-        ${tile("👥","Leadership Directory")}
-        ${tile("📊","Cross-Level Reports")}
-        ${tile("⚙️","Portal Settings")}
+        <div class="tile" onclick="openLeadershipDirectory()">
+          <div class="icon">👥</div>
+          <div class="label">Leadership Directory</div>
+        </div>
+        <div class="tile" onclick="openCrossLevelReports()">
+          <div class="icon">📊</div>
+          <div class="label">Cross-Level Reports</div>
+        </div>
+        <div class="tile" onclick="openPortalSettings()">
+          <div class="icon">⚙️</div>
+          <div class="label">Portal Settings</div>
+        </div>
         <div class="tile" onclick="openAnnouncements('general')">
           <div class="icon">📢</div>
           <div class="label">Announcements (Both Levels)</div>
@@ -1099,11 +1128,11 @@ function openEnterResults(){
     </div>
     <div class="form-group">
       <label>Term</label>
-      <select id="rTerm">${TERMS.map(t => `<option value="${t}">${t}</option>`).join("")}</select>
+      <select id="rTerm">${termOptionsHTML()}</select>
     </div>
     <div class="form-group">
       <label>Session</label>
-      <input type="text" id="rSession" placeholder="e.g. 2025/2026">
+      <input type="text" id="rSession" placeholder="e.g. 2025/2026" value="${defaultSession}">
     </div>
     <button class="btn-primary" onclick="loadStudentsForResults()">Load Students</button>
     <div class="field-error" id="rError"></div>
@@ -1236,11 +1265,11 @@ function openResultsApproval(context){
     </div>
     <div class="form-group">
       <label>Term</label>
-      <select id="aTerm">${TERMS.map(t => `<option value="${t}">${t}</option>`).join("")}</select>
+      <select id="aTerm">${termOptionsHTML()}</select>
     </div>
     <div class="form-group">
       <label>Session</label>
-      <input type="text" id="aSession" placeholder="e.g. 2025/2026">
+      <input type="text" id="aSession" placeholder="e.g. 2025/2026" value="${defaultSession}">
     </div>
     <button class="btn-primary" onclick="loadResultsForApproval()">Load Results</button>
     <div class="field-error" id="aError"></div>
@@ -1490,11 +1519,11 @@ function openFeeManager(context){
     </div>
     <div class="form-group">
       <label>Term</label>
-      <select id="fTerm">${TERMS.map(t => `<option value="${t}">${t}</option>`).join("")}</select>
+      <select id="fTerm">${termOptionsHTML()}</select>
     </div>
     <div class="form-group">
       <label>Session</label>
-      <input type="text" id="fSession" placeholder="e.g. 2025/2026">
+      <input type="text" id="fSession" placeholder="e.g. 2025/2026" value="${defaultSession}">
     </div>
     <button class="btn-primary" onclick="loadFeeRecords()">Load Students</button>
     <div class="field-error" id="fError"></div>
@@ -1828,11 +1857,11 @@ function openReportCards(context){
     </div>
     <div class="form-group">
       <label>Term</label>
-      <select id="rcTerm">${TERMS.map(t => `<option value="${t}">${t}</option>`).join("")}</select>
+      <select id="rcTerm">${termOptionsHTML()}</select>
     </div>
     <div class="form-group">
       <label>Session</label>
-      <input type="text" id="rcSession" placeholder="e.g. 2025/2026">
+      <input type="text" id="rcSession" placeholder="e.g. 2025/2026" value="${defaultSession}">
     </div>
     <button class="btn-primary" onclick="loadReportCardStudents()">Load Students</button>
     <div class="field-error" id="rcError"></div>
@@ -1927,6 +1956,182 @@ async function printReportCard(studentUid, studentName, cls, term, session){
     window.print();
   } catch(e){
     alert("Error generating report card: " + e.message);
+  }
+}
+
+/* ============================================================
+   LEADERSHIP DIRECTORY — General Admin only. Lists all admin accounts.
+============================================================ */
+async function openLeadershipDirectory(){
+  const main = document.getElementById("mainContent");
+  main.innerHTML = `
+    <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
+    <div class="section-title" style="margin-top:12px;">Leadership Directory</div>
+    <div class="placeholder-note">Loading...</div>
+  `;
+
+  try{
+    const snap = await db.collection("users").where("role","in",["general_admin","primary_admin","secondary_admin"]).get();
+    let admins = [];
+    snap.forEach(doc => admins.push({ uid: doc.id, ...doc.data() }));
+    admins.sort((a,b) => (a.role || "").localeCompare(b.role || "") || (a.name || "").localeCompare(b.name || ""));
+
+    if(admins.length === 0){
+      main.innerHTML = `
+        <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
+        <div class="section-title" style="margin-top:12px;">Leadership Directory</div>
+        <div class="placeholder-note">No admin accounts found.</div>
+      `;
+      return;
+    }
+
+    const rows = admins.map(a => `
+      <div style="border:1px solid var(--gray-line); border-radius:8px; padding:10px 12px; margin-bottom:8px;">
+        <div style="font-weight:700;">${a.name || "(no name)"}</div>
+        <div style="font-size:13px; color:#666;">${roleLabel(a.role)}</div>
+        <div style="font-size:13px; overflow-wrap:anywhere;">${a.email || ""}</div>
+      </div>
+    `).join("");
+
+    main.innerHTML = `
+      <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
+      <div class="section-title" style="margin-top:12px;">Leadership Directory</div>
+      ${rows}
+    `;
+  } catch(e){
+    main.innerHTML = `
+      <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
+      <div class="field-error">Error loading directory: ${e.message}</div>
+    `;
+  }
+}
+
+/* ============================================================
+   CROSS-LEVEL REPORTS — General Admin only. Pass/fail summary
+   across Primary and Secondary for a chosen term/session.
+   "Pass" = any grade above F9 (i.e. total score of 40% or higher).
+============================================================ */
+function openCrossLevelReports(){
+  const main = document.getElementById("mainContent");
+  main.innerHTML = `
+    <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
+    <div class="section-title" style="margin-top:12px;">Cross-Level Reports</div>
+    <div class="form-group">
+      <label>Term</label>
+      <select id="clrTerm">${termOptionsHTML()}</select>
+    </div>
+    <div class="form-group">
+      <label>Session</label>
+      <input type="text" id="clrSession" placeholder="e.g. 2025/2026" value="${defaultSession}">
+    </div>
+    <button class="btn-primary" onclick="loadCrossLevelReport()">Generate Report</button>
+    <div class="field-error" id="clrError"></div>
+    <div id="clrArea" style="margin-top:16px;"></div>
+  `;
+}
+
+async function loadCrossLevelReport(){
+  const errBox = document.getElementById("clrError");
+  errBox.textContent = "";
+  const term = document.getElementById("clrTerm").value;
+  const session = document.getElementById("clrSession").value.trim();
+
+  if(!session){
+    errBox.textContent = "Please enter the session (e.g. 2025/2026).";
+    return;
+  }
+
+  const area = document.getElementById("clrArea");
+  area.innerHTML = `<div class="placeholder-note">Loading...</div>`;
+
+  try{
+    const snap = await db.collection("results").where("term","==",term).where("session","==",session).get();
+    let results = [];
+    snap.forEach(doc => results.push(doc.data()));
+
+    if(results.length === 0){
+      area.innerHTML = `<div class="placeholder-note">No results found for ${term} · ${session}.</div>`;
+      return;
+    }
+
+    const summarize = (list) => {
+      const total = list.length;
+      const pass = list.filter(r => r.grade !== "F9").length;
+      const fail = total - pass;
+      const rate = total ? ((pass / total) * 100).toFixed(1) : "0.0";
+      return { total, pass, fail, rate };
+    };
+
+    const overall = summarize(results);
+    const primary = summarize(results.filter(r => r.level === "primary"));
+    const secondary = summarize(results.filter(r => r.level === "secondary"));
+
+    const rowHTML = (label, s) => `
+      <div style="border:1px solid var(--gray-line); border-radius:8px; padding:10px 12px; margin-bottom:8px;">
+        <div style="font-weight:700;">${label}</div>
+        <div style="font-size:13px;">Total Entries: ${s.total} · Pass: ${s.pass} · Fail: ${s.fail}</div>
+        <div style="font-weight:700; color:${Number(s.rate) >= 50 ? "#1a7a1a" : "#b00020"};">Pass Rate: ${s.rate}%</div>
+      </div>
+    `;
+
+    area.innerHTML = `
+      ${rowHTML("Overall (Both Levels)", overall)}
+      ${rowHTML("Primary", primary)}
+      ${rowHTML("Secondary", secondary)}
+      <div class="placeholder-note">Pass = any grade above F9 (total score of 40% or higher). Includes all submitted results regardless of release status.</div>
+    `;
+  } catch(e){
+    area.innerHTML = `<div class="field-error">Error loading report: ${e.message}</div>`;
+  }
+}
+
+/* ============================================================
+   PORTAL SETTINGS — General Admin only. Sets Current Term + Session,
+   used as the default pre-filled value across Results/Fees/Report Cards forms.
+============================================================ */
+function openPortalSettings(){
+  const main = document.getElementById("mainContent");
+  main.innerHTML = `
+    <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
+    <div class="section-title" style="margin-top:12px;">Portal Settings</div>
+    <div class="placeholder-note">These become the default Term and Session pre-filled across Results, Fee Records, and Report Cards forms — staff can still change them per form if needed.</div>
+    <div class="form-group">
+      <label>Current Term</label>
+      <select id="psTerm">${termOptionsHTML()}</select>
+    </div>
+    <div class="form-group">
+      <label>Current Session</label>
+      <input type="text" id="psSession" placeholder="e.g. 2025/2026" value="${defaultSession}">
+    </div>
+    <div class="field-error" id="psError"></div>
+    <div class="placeholder-note" id="psSuccess"></div>
+    <button class="btn-primary" onclick="savePortalSettings()">Save Settings</button>
+  `;
+}
+
+async function savePortalSettings(){
+  const errBox = document.getElementById("psError");
+  const successBox = document.getElementById("psSuccess");
+  errBox.textContent = "";
+  successBox.textContent = "";
+
+  const term = document.getElementById("psTerm").value;
+  const session = document.getElementById("psSession").value.trim();
+
+  if(!session){
+    errBox.textContent = "Please enter the session (e.g. 2025/2026).";
+    return;
+  }
+
+  try{
+    await db.collection("settings").doc("current").set({
+      term, session, updatedBy: currentUser.uid, updatedAt: new Date().toISOString()
+    }, { merge: true });
+    defaultTerm = term;
+    defaultSession = session;
+    successBox.textContent = "Settings saved.";
+  } catch(e){
+    errBox.textContent = "Error saving: " + e.message;
   }
 }
 
