@@ -720,6 +720,10 @@ function renderGeneralAdmin(view){
           <div class="icon">⚙️</div>
           <div class="label">Portal Settings</div>
         </div>
+        <div class="tile" onclick="openExportData()">
+          <div class="icon">💾</div>
+          <div class="label">Export Data</div>
+        </div>
         <div class="tile" onclick="openAnnouncements('general')">
           <div class="icon">📢</div>
           <div class="label">Announcements (Both Levels)</div>
@@ -2300,6 +2304,57 @@ function printCAList(names, cls, subject, term, session){
 
   document.body.classList.add("printing");
   window.print();
+}
+
+/* ============================================================
+   EXPORT DATA — General Admin only. Downloads a full JSON backup
+   of Users, Results, Fees, Announcements, and Settings straight to
+   the phone. Works entirely in-browser, no extra tools needed.
+============================================================ */
+function openExportData(){
+  const main = document.getElementById("mainContent");
+  main.innerHTML = `
+    <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
+    <div class="section-title" style="margin-top:12px;">Export Data</div>
+    <div class="placeholder-note">Downloads a full backup of Users, Results, Fees, Announcements, and Settings as a single JSON file to your phone. Keep this somewhere safe (e.g. Google Drive) — it's your recovery copy if anything is ever accidentally deleted.</div>
+    <button class="btn-primary" id="exportBtn" onclick="exportPortalData()">Download Backup</button>
+    <div class="placeholder-note" id="exportStatus"></div>
+  `;
+}
+
+async function exportPortalData(){
+  const status = document.getElementById("exportStatus");
+  status.textContent = "Exporting... this may take a moment.";
+
+  try{
+    const collections = ["users","results","fees","announcements","settings"];
+    const backup = {};
+
+    for(const col of collections){
+      const snap = await db.collection(col).get();
+      backup[col] = [];
+      snap.forEach(doc => backup[col].push({ id: doc.id, ...doc.data() }));
+    }
+
+    backup._exportedAt = new Date().toISOString();
+    backup._school = "Faith International School, Itobe — fiss-itobe-portal";
+
+    const json = JSON.stringify(backup, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const dateStr = new Date().toISOString().slice(0,10);
+    a.href = url;
+    a.download = `fiss-itobe-portal-backup-${dateStr}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    status.textContent = "Backup downloaded. Check your phone's Downloads folder.";
+  } catch(e){
+    status.textContent = "Error exporting: " + e.message;
+  }
 }
 
 function classOptionsHTML(level){
