@@ -509,23 +509,6 @@ const SECONDARY_SUBJECTS = ["Mathematics","English","Basic Science","Civic Educa
 
 const TERMS = ["First Term","Second Term","Third Term"];
 
-function termOptionsHTML(){
-  return TERMS.map(t => `<option value="${t}" ${t === defaultTerm ? "selected" : ""}>${t}</option>`).join("");
-}
-
-async function loadPortalSettings(){
-  try{
-    const doc = await db.collection("settings").doc("current").get();
-    if(doc.exists){
-      const d = doc.data();
-      defaultTerm = d.term || "";
-      defaultSession = d.session || "";
-    }
-  } catch(e){
-    // Non-critical — forms just fall back to blank/first option if this fails.
-  }
-}
-
 function waecGrade(total){
   if(total >= 75) return { grade: "A1", remark: "Excellent" };
   if(total >= 70) return { grade: "B2", remark: "Very Good" };
@@ -552,8 +535,6 @@ let resultsApprovalContext = "general"; // "general" | "primary" | "secondary"
 let currentResultsBatch = []; // rows currently loaded in teacher-entry or admin-approval screen
 let feeManagerContext = "cashier"; // "cashier" | "primary" | "secondary" | "general"
 let currentFeeBatch = [];
-let defaultTerm = "";
-let defaultSession = "";
 
 /* ---------------- LOGIN / LOGOUT ---------------- */
 function handleLogin(){
@@ -580,26 +561,6 @@ function handleLogout(){
   auth.signOut();
 }
 
-/* ============================================================
-   AUTO LOG-OUT ON INACTIVITY
-   Logs the user out after IDLE_TIMEOUT_MS of no touch/click/scroll/key
-   activity, so a shared or unattended phone doesn't stay signed into
-   an Admin account indefinitely.
-============================================================ */
-const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
-let lastActivityAt = Date.now();
-
-["click","touchstart","keydown","scroll","mousemove"].forEach(evt => {
-  document.addEventListener(evt, () => { lastActivityAt = Date.now(); }, { passive: true });
-});
-
-setInterval(() => {
-  if(currentUser && (Date.now() - lastActivityAt) >= IDLE_TIMEOUT_MS){
-    handleLogout();
-    alert("You've been logged out after 15 minutes of inactivity.");
-  }
-}, 30 * 1000); // check every 30 seconds
-
 auth.onAuthStateChanged(async (user) => {
   if(user){
     currentUser = user;
@@ -623,7 +584,6 @@ async function loadUserProfile(uid){
       return;
     }
     currentProfile = doc.data(); // { name, role, level, email }
-    loadPortalSettings();
     enterPortal();
   } catch(e){
     document.getElementById("loginError").textContent = "Error loading profile: " + e.message;
@@ -708,26 +668,10 @@ function renderGeneralAdmin(view){
       </div>
       <div class="section-title">General Admin Tools</div>
       <div class="card-grid">
-        <div class="tile" onclick="openLeadershipDirectory()">
-          <div class="icon">👥</div>
-          <div class="label">Leadership Directory</div>
-        </div>
-        <div class="tile" onclick="openCrossLevelReports()">
-          <div class="icon">📊</div>
-          <div class="label">Cross-Level Reports</div>
-        </div>
-        <div class="tile" onclick="openPortalSettings()">
-          <div class="icon">⚙️</div>
-          <div class="label">Portal Settings</div>
-        </div>
-        <div class="tile" onclick="openExportData()">
-          <div class="icon">💾</div>
-          <div class="label">Export Data</div>
-        </div>
-        <div class="tile" onclick="openAnnouncements('general')">
-          <div class="icon">📢</div>
-          <div class="label">Announcements (Both Levels)</div>
-        </div>
+        ${tile("👥","Leadership Directory")}
+        ${tile("📊","Cross-Level Reports")}
+        ${tile("⚙️","Portal Settings")}
+        ${tile("📢","Announcements (Both Levels)")}
       </div>
       <div class="section-title">Accounts</div>
       <div class="card-grid">
@@ -785,18 +729,8 @@ function levelAdminTiles(level){
         <div class="icon">🧾</div>
         <div class="label">Fee Records</div>
       </div>
-      <div class="tile" onclick="openAnnouncements('${lvl}')">
-        <div class="icon">📢</div>
-        <div class="label">Announcements</div>
-      </div>
-      <div class="tile" onclick="openReportCards('${lvl}')">
-        <div class="icon">📄</div>
-        <div class="label">Report Cards</div>
-      </div>
-      <div class="tile" onclick="openCAList('${lvl}')">
-        <div class="icon">🖨️</div>
-        <div class="label">CA List</div>
-      </div>
+      ${tile("📢","Announcements")}
+      ${tile("📄","Report Cards")}
     </div>
   `;
 }
@@ -811,14 +745,7 @@ function renderTeacher(){
         <div class="label">Enter Results</div>
       </div>
       ${tile("📊","Class Performance")}
-      <div class="tile" onclick="openAnnouncements('view')">
-        <div class="icon">📢</div>
-        <div class="label">Announcements</div>
-      </div>
-      <div class="tile" onclick="openCAList('teacher')">
-        <div class="icon">🖨️</div>
-        <div class="label">CA List</div>
-      </div>
+      ${tile("📢","Announcements")}
     </div>
   `;
 }
@@ -837,10 +764,7 @@ function renderStudent(){
         <div class="icon">💳</div>
         <div class="label">Fee Status</div>
       </div>
-      <div class="tile" onclick="openAnnouncements('view')">
-        <div class="icon">📢</div>
-        <div class="label">Announcements</div>
-      </div>
+      ${tile("📢","Announcements")}
     </div>
   `;
 }
@@ -853,12 +777,18 @@ function renderCashier(){
         <div class="icon">💰</div>
         <div class="label">Record Payment</div>
       </div>
-      ${tile("🧾","Generate Receipt")}
+      <div class="tile" onclick="openReceiptLookup()">
+        <div class="icon">🧾</div>
+        <div class="label">Generate Receipt</div>
+      </div>
       <div class="tile" onclick="openFeeManager('cashier')">
         <div class="icon">📊</div>
         <div class="label">Track Balances</div>
       </div>
-      ${tile("📄","Reports")}
+      <div class="tile" onclick="openCashierReports()">
+        <div class="icon">📄</div>
+        <div class="label">Reports</div>
+      </div>
     </div>
   `;
 }
@@ -1160,11 +1090,11 @@ function openEnterResults(){
     </div>
     <div class="form-group">
       <label>Term</label>
-      <select id="rTerm">${termOptionsHTML()}</select>
+      <select id="rTerm">${TERMS.map(t => `<option value="${t}">${t}</option>`).join("")}</select>
     </div>
     <div class="form-group">
       <label>Session</label>
-      <input type="text" id="rSession" placeholder="e.g. 2025/2026" value="${defaultSession}">
+      <input type="text" id="rSession" placeholder="e.g. 2025/2026">
     </div>
     <button class="btn-primary" onclick="loadStudentsForResults()">Load Students</button>
     <div class="field-error" id="rError"></div>
@@ -1297,11 +1227,11 @@ function openResultsApproval(context){
     </div>
     <div class="form-group">
       <label>Term</label>
-      <select id="aTerm">${termOptionsHTML()}</select>
+      <select id="aTerm">${TERMS.map(t => `<option value="${t}">${t}</option>`).join("")}</select>
     </div>
     <div class="form-group">
       <label>Session</label>
-      <input type="text" id="aSession" placeholder="e.g. 2025/2026" value="${defaultSession}">
+      <input type="text" id="aSession" placeholder="e.g. 2025/2026">
     </div>
     <button class="btn-primary" onclick="loadResultsForApproval()">Load Results</button>
     <div class="field-error" id="aError"></div>
@@ -1551,11 +1481,11 @@ function openFeeManager(context){
     </div>
     <div class="form-group">
       <label>Term</label>
-      <select id="fTerm">${termOptionsHTML()}</select>
+      <select id="fTerm">${TERMS.map(t => `<option value="${t}">${t}</option>`).join("")}</select>
     </div>
     <div class="form-group">
       <label>Session</label>
-      <input type="text" id="fSession" placeholder="e.g. 2025/2026" value="${defaultSession}">
+      <input type="text" id="fSession" placeholder="e.g. 2025/2026">
     </div>
     <button class="btn-primary" onclick="loadFeeRecords()">Load Students</button>
     <div class="field-error" id="fError"></div>
@@ -1684,6 +1614,12 @@ async function setTotalFee(i, value, cls, term, session){
   }
 }
 
+function generateReceiptNo(){
+  // Timestamp-based, no shared counter doc — avoids the same concurrent-write
+  // conflict that the fee totals fix (FieldValue.increment) was built to solve.
+  return "FIS-" + Date.now().toString(36).toUpperCase();
+}
+
 async function addPayment(i, cls, term, session){
   const input = document.getElementById(`pay_${i}`);
   const amount = Number(input.value);
@@ -1692,19 +1628,244 @@ async function addPayment(i, cls, term, session){
     return;
   }
   const s = currentFeeBatch[i];
+  const receiptNo = generateReceiptNo();
+  const createdAt = new Date().toISOString();
+
   try{
     // Atomic increment avoids losing payments if two cashiers record at once.
     await db.collection("fees").doc(feeDocId(s.uid, term, session)).set({
       studentUid: s.uid, studentName: s.name, class: cls, level: s.level, term, session,
       amountPaid: firebase.firestore.FieldValue.increment(amount),
-      updatedAt: new Date().toISOString(), updatedBy: currentUser.uid
+      updatedAt: createdAt, updatedBy: currentUser.uid
     }, { merge: true });
+
+    // Individual payment ledger entry — powers receipts and the transaction report.
+    // feeTransactions docs are never edited or deleted once written.
+    const txnRef = await db.collection("feeTransactions").add({
+      studentUid: s.uid, studentName: s.name, class: cls, level: s.level, term, session,
+      amount, receiptNo,
+      cashierUid: currentUser.uid, cashierName: currentProfile.name || currentUser.email,
+      createdAt
+    });
 
     s.amountPaid += amount;
     renderFeeTable(cls, term, session);
+
+    printReceipt({
+      studentName: s.name, class: cls, level: s.level, term, session,
+      amount, receiptNo, cashierName: currentProfile.name || currentUser.email, createdAt
+    });
   } catch(e){
     alert("Error recording payment: " + e.message);
   }
+}
+
+/* ============================================================
+   RECEIPTS — printReceipt() renders one payment as a printable slip.
+   openReceiptLookup() lets a cashier search and reprint any past receipt.
+============================================================ */
+function printReceipt(r){
+  const printArea = document.getElementById("printArea");
+  const balanceNote = ""; // kept simple: receipt shows the payment, not running balance
+  printArea.innerHTML = `
+    <div style="text-align:center; margin-bottom:14px;">
+      <h2 style="margin:0;">Faith International School, Itobe</h2>
+      <div style="font-style:italic;">"In God We Trust"</div>
+      <div style="margin-top:8px; font-weight:700;">Payment Receipt</div>
+      <div style="font-size:12px; color:#555;">Receipt No: ${r.receiptNo}</div>
+    </div>
+    <table>
+      <tbody>
+        <tr><td><strong>Student</strong></td><td>${r.studentName}</td></tr>
+        <tr><td><strong>Class</strong></td><td>${r.class}</td></tr>
+        <tr><td><strong>Term / Session</strong></td><td>${r.term} · ${r.session}</td></tr>
+        <tr><td><strong>Amount Paid</strong></td><td>₦${r.amount}</td></tr>
+        <tr><td><strong>Date</strong></td><td>${new Date(r.createdAt).toLocaleString()}</td></tr>
+        <tr><td><strong>Cashier</strong></td><td>${r.cashierName}</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top:16px; font-size:12px; color:#555;">This receipt is computer-generated and valid without a signature.</div>
+  `;
+  document.body.classList.add("printing");
+  window.print();
+}
+
+function openReceiptLookup(){
+  const main = document.getElementById("mainContent");
+  main.innerHTML = `
+    <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
+    <div class="section-title" style="margin-top:12px;">Generate Receipt</div>
+    <div class="form-group">
+      <label>Search by student name or receipt number</label>
+      <input type="text" id="receiptSearch" placeholder="e.g. Musa Ibrahim or FIS-M5X2K9">
+    </div>
+    <button class="btn-primary" onclick="searchReceipts()">Search</button>
+    <div class="field-error" id="receiptError"></div>
+    <div id="receiptResultsArea" style="margin-top:16px;"></div>
+  `;
+}
+
+async function searchReceipts(){
+  const errBox = document.getElementById("receiptError");
+  const area = document.getElementById("receiptResultsArea");
+  errBox.textContent = "";
+  const q = document.getElementById("receiptSearch").value.trim().toLowerCase();
+
+  if(!q){
+    errBox.textContent = "Enter a student name or receipt number.";
+    return;
+  }
+
+  area.innerHTML = `<div class="placeholder-note">Searching...</div>`;
+
+  try{
+    // Fetched client-side filtered since Firestore can't do partial-text search;
+    // cashier volumes here are small enough for this to stay fast.
+    const snap = await db.collection("feeTransactions").orderBy("createdAt","desc").limit(200).get();
+    let results = [];
+    snap.forEach(doc => {
+      const d = doc.data();
+      if((d.studentName || "").toLowerCase().includes(q) || (d.receiptNo || "").toLowerCase().includes(q)){
+        results.push(d);
+      }
+    });
+
+    if(results.length === 0){
+      area.innerHTML = `<div class="placeholder-note">No matching receipts found.</div>`;
+      return;
+    }
+
+    area.innerHTML = results.map(r => `
+      <div style="border:1px solid var(--gray-line); border-radius:8px; padding:10px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; gap:10px;">
+        <div>
+          <div style="font-weight:600;">${r.studentName} — ${r.class}</div>
+          <div style="font-size:12px; color:#555;">${r.term} · ${r.session} · ₦${r.amount} · ${new Date(r.createdAt).toLocaleDateString()}</div>
+          <div style="font-size:11px; color:#888;">${r.receiptNo}</div>
+        </div>
+        <button class="btn-secondary" style="width:auto; margin:0;" onclick='printReceipt(${JSON.stringify(r)})'>Print</button>
+      </div>
+    `).join("");
+  } catch(e){
+    area.innerHTML = `<div class="field-error">Error searching: ${e.message}</div>`;
+  }
+}
+
+/* ============================================================
+   REPORTS — full transaction log for the cashier, filterable
+   by class / term / session, newest first.
+============================================================ */
+function openCashierReports(){
+  const main = document.getElementById("mainContent");
+  const classList = classListForLevel(currentProfile.level);
+  main.innerHTML = `
+    <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
+    <div class="section-title" style="margin-top:12px;">Reports — Transaction Log</div>
+    <div class="form-group">
+      <label>Class (optional)</label>
+      <select id="rClass"><option value="">All Classes</option>${classList.map(c => `<option value="${c}">${c}</option>`).join("")}</select>
+    </div>
+    <div class="form-group">
+      <label>Term (optional)</label>
+      <select id="rTerm"><option value="">All Terms</option>${TERMS.map(t => `<option value="${t}">${t}</option>`).join("")}</select>
+    </div>
+    <div class="form-group">
+      <label>Session (optional)</label>
+      <input type="text" id="rSession" placeholder="e.g. 2025/2026">
+    </div>
+    <button class="btn-primary" onclick="loadCashierReport()">Load Transactions</button>
+    <div class="field-error" id="rError"></div>
+    <div id="rResultsArea" style="margin-top:16px;"></div>
+  `;
+}
+
+let currentReportBatch = [];
+
+async function loadCashierReport(){
+  const errBox = document.getElementById("rError");
+  const area = document.getElementById("rResultsArea");
+  errBox.textContent = "";
+  const cls = document.getElementById("rClass").value;
+  const term = document.getElementById("rTerm").value;
+  const session = document.getElementById("rSession").value.trim();
+
+  area.innerHTML = `<div class="placeholder-note">Loading transactions...</div>`;
+
+  try{
+    let query = db.collection("feeTransactions").orderBy("createdAt","desc").limit(300);
+    const snap = await query.get();
+    let rows = [];
+    snap.forEach(doc => rows.push(doc.data()));
+
+    if(cls) rows = rows.filter(r => r.class === cls);
+    if(term) rows = rows.filter(r => r.term === term);
+    if(session) rows = rows.filter(r => r.session === session);
+
+    currentReportBatch = rows;
+
+    if(rows.length === 0){
+      area.innerHTML = `<div class="placeholder-note">No transactions match these filters.</div>`;
+      return;
+    }
+
+    const total = rows.reduce((sum, r) => sum + (r.amount || 0), 0);
+    const tableRows = rows.map(r => `
+      <tr>
+        <td>${new Date(r.createdAt).toLocaleDateString()}</td>
+        <td>${r.studentName}</td>
+        <td>${r.class}</td>
+        <td>₦${r.amount}</td>
+        <td>${r.term}</td>
+        <td>${r.session}</td>
+        <td>${r.cashierName}</td>
+        <td>${r.receiptNo}</td>
+      </tr>
+    `).join("");
+
+    area.innerHTML = `
+      <button class="btn-secondary" onclick="printCashierReport()">🖨️ Print Report</button>
+      <div style="margin-top:10px; font-weight:700;">Total Collected: ₦${total} (${rows.length} payment${rows.length === 1 ? "" : "s"})</div>
+      <div style="overflow-x:auto; margin-top:10px;">
+        <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
+          <thead>
+            <tr style="text-align:left; border-bottom:2px solid var(--gray-line);">
+              <th style="padding:6px 4px;">Date</th><th style="padding:6px 4px;">Student</th>
+              <th style="padding:6px 4px;">Class</th><th style="padding:6px 4px;">Amount</th>
+              <th style="padding:6px 4px;">Term</th><th style="padding:6px 4px;">Session</th>
+              <th style="padding:6px 4px;">Cashier</th><th style="padding:6px 4px;">Receipt No.</th>
+            </tr>
+          </thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </div>
+    `;
+  } catch(e){
+    area.innerHTML = `<div class="field-error">Error loading report: ${e.message}</div>`;
+  }
+}
+
+function printCashierReport(){
+  const printArea = document.getElementById("printArea");
+  const total = currentReportBatch.reduce((sum, r) => sum + (r.amount || 0), 0);
+  const rows = currentReportBatch.map(r => `
+    <tr><td>${new Date(r.createdAt).toLocaleDateString()}</td><td>${r.studentName}</td><td>${r.class}</td>
+    <td>₦${r.amount}</td><td>${r.term}</td><td>${r.session}</td><td>${r.cashierName}</td><td>${r.receiptNo}</td></tr>
+  `).join("");
+
+  printArea.innerHTML = `
+    <div style="text-align:center; margin-bottom:14px;">
+      <h2 style="margin:0;">Faith International School, Itobe</h2>
+      <div style="font-style:italic;">"In God We Trust"</div>
+      <div style="margin-top:8px; font-weight:600;">Fee Transaction Report</div>
+      <div style="font-size:12px; color:#555;">Printed: ${new Date().toLocaleDateString()}</div>
+    </div>
+    <table>
+      <thead><tr><th>Date</th><th>Student</th><th>Class</th><th>Amount</th><th>Term</th><th>Session</th><th>Cashier</th><th>Receipt No.</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="margin-top:12px; font-weight:700;">Total Collected: ₦${total}</div>
+  `;
+  document.body.classList.add("printing");
+  window.print();
 }
 
 /* ---------- STUDENT VIEW ---------- */
@@ -1752,608 +1913,6 @@ async function openStudentFeeStatus(){
       <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
       <div class="field-error">Error loading fee status: ${e.message}</div>
     `;
-  }
-}
-
-/* ============================================================
-   ANNOUNCEMENTS
-   Admins only can post (General Admin can target either level or both;
-   Level Admins are locked to their own level). Everyone can view,
-   filtered to announcements matching their level (or "both").
-============================================================ */
-function openAnnouncements(context){
-  const main = document.getElementById("mainContent");
-  const isAdmin = ["general_admin","primary_admin","secondary_admin"].includes(currentProfile.role);
-  const isGeneralAdmin = currentProfile.role === "general_admin";
-
-  main.innerHTML = `
-    <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
-    <div class="section-title" style="margin-top:12px;">Announcements</div>
-    ${isAdmin ? `
-      <div class="form-group">
-        <label>Title</label>
-        <input type="text" id="annTitle" placeholder="e.g. Mid-Term Break Notice">
-      </div>
-      <div class="form-group">
-        <label>Message</label>
-        <textarea id="annBody" rows="4" style="width:100%; padding:8px; border:1px solid var(--gray-line); border-radius:8px; box-sizing:border-box;" placeholder="Write the announcement..."></textarea>
-      </div>
-      <div class="form-group">
-        <label>Audience</label>
-        ${isGeneralAdmin ? `
-          <select id="annLevel">
-            <option value="both">Both Levels</option>
-            <option value="primary">Primary Only</option>
-            <option value="secondary">Secondary Only</option>
-          </select>
-        ` : `<input type="text" value="${currentProfile.level === "primary" ? "Primary Only" : "Secondary Only"}" disabled>
-          <input type="hidden" id="annLevel" value="${currentProfile.level}">`}
-      </div>
-      <div class="field-error" id="annError"></div>
-      <button class="btn-primary" onclick="postAnnouncement()">Post Announcement</button>
-      <div class="section-title" style="margin-top:20px;">Posted Announcements</div>
-    ` : ""}
-    <div id="annListArea"><div class="placeholder-note">Loading...</div></div>
-  `;
-
-  loadAnnouncements();
-}
-
-async function loadAnnouncements(){
-  const area = document.getElementById("annListArea");
-  try{
-    const snap = await db.collection("announcements").orderBy("postedAt","desc").limit(50).get();
-    let anns = [];
-    snap.forEach(doc => anns.push({ id: doc.id, ...doc.data() }));
-
-    const isGeneralAdmin = currentProfile.role === "general_admin";
-    if(!isGeneralAdmin){
-      const myLevel = currentProfile.level;
-      anns = anns.filter(a => a.level === "both" || a.level === myLevel);
-    }
-
-    if(anns.length === 0){
-      area.innerHTML = `<div class="placeholder-note">No announcements yet.</div>`;
-      return;
-    }
-
-    const isAdmin = ["general_admin","primary_admin","secondary_admin"].includes(currentProfile.role);
-    const levelLabel = l => l === "both" ? "Both Levels" : l.charAt(0).toUpperCase() + l.slice(1);
-
-    area.innerHTML = anns.map(a => `
-      <div style="border:1px solid var(--gray-line); border-radius:8px; padding:10px 12px; margin-bottom:8px;">
-        <div style="display:flex; justify-content:space-between; align-items:start; gap:8px;">
-          <div style="font-weight:700; overflow-wrap:anywhere;">${a.title}</div>
-          ${isAdmin ? `<button class="btn-secondary" style="color:#b00020; flex-shrink:0;" onclick="deleteAnnouncement('${a.id}')">Delete</button>` : ""}
-        </div>
-        <div style="font-size:12px; color:#666; margin:4px 0;">${levelLabel(a.level)} · ${a.postedAt ? new Date(a.postedAt).toLocaleDateString() : ""}</div>
-        <div style="white-space:pre-wrap; overflow-wrap:anywhere;">${a.body}</div>
-      </div>
-    `).join("");
-  } catch(e){
-    area.innerHTML = `<div class="field-error">Error loading announcements: ${e.message}</div>`;
-  }
-}
-
-async function postAnnouncement(){
-  const errBox = document.getElementById("annError");
-  errBox.textContent = "";
-  const title = document.getElementById("annTitle").value.trim();
-  const body = document.getElementById("annBody").value.trim();
-  const level = document.getElementById("annLevel").value;
-
-  if(!title || !body){
-    errBox.textContent = "Please fill in both title and message.";
-    return;
-  }
-
-  try{
-    await db.collection("announcements").add({
-      title, body, level,
-      postedBy: currentUser.uid, postedByName: currentProfile.name || "",
-      postedAt: new Date().toISOString()
-    });
-    document.getElementById("annTitle").value = "";
-    document.getElementById("annBody").value = "";
-    loadAnnouncements();
-  } catch(e){
-    errBox.textContent = "Error posting: " + e.message;
-  }
-}
-
-async function deleteAnnouncement(id){
-  if(!confirm("Delete this announcement? This cannot be undone.")) return;
-  try{
-    await db.collection("announcements").doc(id).delete();
-    loadAnnouncements();
-  } catch(e){
-    alert("Error deleting: " + e.message);
-  }
-}
-
-/* ============================================================
-   REPORT CARDS
-   Pulls each student's released results for a chosen term/session
-   and produces a printable report card (reuses #printArea).
-============================================================ */
-function openReportCards(context){
-  const main = document.getElementById("mainContent");
-  const classList = classListForLevel(context === "general" ? "both" : context);
-
-  main.innerHTML = `
-    <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
-    <div class="section-title" style="margin-top:12px;">Report Cards</div>
-    <div class="form-group">
-      <label>Class</label>
-      <select id="rcClass">${classList.map(c => `<option value="${c}">${c}</option>`).join("")}</select>
-    </div>
-    <div class="form-group">
-      <label>Term</label>
-      <select id="rcTerm">${termOptionsHTML()}</select>
-    </div>
-    <div class="form-group">
-      <label>Session</label>
-      <input type="text" id="rcSession" placeholder="e.g. 2025/2026" value="${defaultSession}">
-    </div>
-    <button class="btn-primary" onclick="loadReportCardStudents()">Load Students</button>
-    <div class="field-error" id="rcError"></div>
-    <div id="rcListArea" style="margin-top:16px;"></div>
-  `;
-}
-
-async function loadReportCardStudents(){
-  const errBox = document.getElementById("rcError");
-  errBox.textContent = "";
-  const cls = document.getElementById("rcClass").value;
-  const term = document.getElementById("rcTerm").value;
-  const session = document.getElementById("rcSession").value.trim();
-
-  if(!session){
-    errBox.textContent = "Please enter the session (e.g. 2025/2026).";
-    return;
-  }
-
-  const area = document.getElementById("rcListArea");
-  area.innerHTML = `<div class="placeholder-note">Loading students...</div>`;
-
-  try{
-    const snap = await db.collection("users").where("role","==","student").where("class","==",cls).get();
-    let students = [];
-    snap.forEach(doc => students.push({ uid: doc.id, ...doc.data() }));
-    students.sort((a,b) => (a.name || "").localeCompare(b.name || ""));
-
-    if(students.length === 0){
-      area.innerHTML = `<div class="placeholder-note">No students found in ${cls}.</div>`;
-      return;
-    }
-
-    area.innerHTML = students.map(s => `
-      <div style="display:flex; justify-content:space-between; align-items:center; border:1px solid var(--gray-line); border-radius:8px; padding:10px 14px; margin-bottom:8px; gap:10px;">
-        <div style="font-weight:600; overflow-wrap:anywhere;">${s.name}</div>
-        <button class="btn-secondary" style="flex-shrink:0;" onclick="printReportCard('${s.uid}', ${JSON.stringify(s.name || "")}, '${cls}', '${term}', ${JSON.stringify(session)})">Print Report Card</button>
-      </div>
-    `).join("");
-  } catch(e){
-    area.innerHTML = `<div class="field-error">Error loading students: ${e.message}</div>`;
-  }
-}
-
-async function printReportCard(studentUid, studentName, cls, term, session){
-  try{
-    const snap = await db.collection("results")
-      .where("studentUid","==",studentUid).where("term","==",term)
-      .where("session","==",session).where("released","==",true)
-      .get();
-
-    let results = [];
-    snap.forEach(doc => results.push(doc.data()));
-    results.sort((a,b) => (a.subject || "").localeCompare(b.subject || ""));
-
-    if(results.length === 0){
-      alert(`No released results found for ${studentName} in ${term} · ${session}.`);
-      return;
-    }
-
-    const rows = results.map(r => `<tr><td>${r.subject}</td><td>${r.ca1}</td><td>${r.ca2}</td><td>${r.exam}</td><td>${r.total}</td><td>${r.grade}</td></tr>`).join("");
-    const avg = (results.reduce((sum, r) => sum + r.total, 0) / results.length).toFixed(1);
-
-    const printArea = document.getElementById("printArea");
-    printArea.innerHTML = `
-      <div style="text-align:center; margin-bottom:14px;">
-        <h2 style="margin:0;">Faith International School, Itobe</h2>
-        <div style="font-style:italic;">"In God We Trust"</div>
-        <div style="margin-top:10px; font-weight:700;">Student Report Card</div>
-      </div>
-      <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:14px;">
-        <div><strong>Name:</strong> ${studentName}</div>
-        <div><strong>Class:</strong> ${cls}</div>
-      </div>
-      <div style="display:flex; justify-content:space-between; margin-bottom:14px; font-size:14px;">
-        <div><strong>Term:</strong> ${term}</div>
-        <div><strong>Session:</strong> ${session}</div>
-      </div>
-      <table>
-        <thead><tr><th>Subject</th><th>CA1 (/20)</th><th>CA2 (/20)</th><th>Exam (/60)</th><th>Total (/100)</th><th>Grade</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-      <div style="margin-top:14px; font-weight:700;">Average Score: ${avg}%</div>
-      <div style="margin-top:40px; display:flex; justify-content:space-between; font-size:13px;">
-        <div>_____________________<br>Class Teacher's Signature</div>
-        <div>_____________________<br>Admin's Signature</div>
-      </div>
-      <div style="text-align:center; margin-top:20px; font-size:11px; color:#555;">Printed: ${new Date().toLocaleDateString()}</div>
-    `;
-
-    document.body.classList.add("printing");
-    window.print();
-  } catch(e){
-    alert("Error generating report card: " + e.message);
-  }
-}
-
-/* ============================================================
-   LEADERSHIP DIRECTORY — General Admin only. Lists all admin accounts.
-============================================================ */
-async function openLeadershipDirectory(){
-  const main = document.getElementById("mainContent");
-  main.innerHTML = `
-    <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
-    <div class="section-title" style="margin-top:12px;">Leadership Directory</div>
-    <div class="placeholder-note">Loading...</div>
-  `;
-
-  try{
-    const snap = await db.collection("users").where("role","in",["general_admin","primary_admin","secondary_admin"]).get();
-    let admins = [];
-    snap.forEach(doc => admins.push({ uid: doc.id, ...doc.data() }));
-    admins.sort((a,b) => (a.role || "").localeCompare(b.role || "") || (a.name || "").localeCompare(b.name || ""));
-
-    if(admins.length === 0){
-      main.innerHTML = `
-        <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
-        <div class="section-title" style="margin-top:12px;">Leadership Directory</div>
-        <div class="placeholder-note">No admin accounts found.</div>
-      `;
-      return;
-    }
-
-    const rows = admins.map(a => `
-      <div style="border:1px solid var(--gray-line); border-radius:8px; padding:10px 12px; margin-bottom:8px;">
-        <div style="font-weight:700;">${a.name || "(no name)"}</div>
-        <div style="font-size:13px; color:#666;">${roleLabel(a.role)}</div>
-        <div style="font-size:13px; overflow-wrap:anywhere;">${a.email || ""}</div>
-      </div>
-    `).join("");
-
-    main.innerHTML = `
-      <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
-      <div class="section-title" style="margin-top:12px;">Leadership Directory</div>
-      ${rows}
-    `;
-  } catch(e){
-    main.innerHTML = `
-      <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
-      <div class="field-error">Error loading directory: ${e.message}</div>
-    `;
-  }
-}
-
-/* ============================================================
-   CROSS-LEVEL REPORTS — General Admin only. Pass/fail summary
-   across Primary and Secondary for a chosen term/session.
-   "Pass" = any grade above F9 (i.e. total score of 40% or higher).
-============================================================ */
-function openCrossLevelReports(){
-  const main = document.getElementById("mainContent");
-  main.innerHTML = `
-    <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
-    <div class="section-title" style="margin-top:12px;">Cross-Level Reports</div>
-    <div class="form-group">
-      <label>Term</label>
-      <select id="clrTerm">${termOptionsHTML()}</select>
-    </div>
-    <div class="form-group">
-      <label>Session</label>
-      <input type="text" id="clrSession" placeholder="e.g. 2025/2026" value="${defaultSession}">
-    </div>
-    <button class="btn-primary" onclick="loadCrossLevelReport()">Generate Report</button>
-    <div class="field-error" id="clrError"></div>
-    <div id="clrArea" style="margin-top:16px;"></div>
-  `;
-}
-
-async function loadCrossLevelReport(){
-  const errBox = document.getElementById("clrError");
-  errBox.textContent = "";
-  const term = document.getElementById("clrTerm").value;
-  const session = document.getElementById("clrSession").value.trim();
-
-  if(!session){
-    errBox.textContent = "Please enter the session (e.g. 2025/2026).";
-    return;
-  }
-
-  const area = document.getElementById("clrArea");
-  area.innerHTML = `<div class="placeholder-note">Loading...</div>`;
-
-  try{
-    const snap = await db.collection("results").where("term","==",term).where("session","==",session).get();
-    let results = [];
-    snap.forEach(doc => results.push(doc.data()));
-
-    if(results.length === 0){
-      area.innerHTML = `<div class="placeholder-note">No results found for ${term} · ${session}.</div>`;
-      return;
-    }
-
-    const summarize = (list) => {
-      const total = list.length;
-      const pass = list.filter(r => r.grade !== "F9").length;
-      const fail = total - pass;
-      const rate = total ? ((pass / total) * 100).toFixed(1) : "0.0";
-      return { total, pass, fail, rate };
-    };
-
-    const overall = summarize(results);
-    const primary = summarize(results.filter(r => r.level === "primary"));
-    const secondary = summarize(results.filter(r => r.level === "secondary"));
-
-    const rowHTML = (label, s) => `
-      <div style="border:1px solid var(--gray-line); border-radius:8px; padding:10px 12px; margin-bottom:8px;">
-        <div style="font-weight:700;">${label}</div>
-        <div style="font-size:13px;">Total Entries: ${s.total} · Pass: ${s.pass} · Fail: ${s.fail}</div>
-        <div style="font-weight:700; color:${Number(s.rate) >= 50 ? "#1a7a1a" : "#b00020"};">Pass Rate: ${s.rate}%</div>
-      </div>
-    `;
-
-    area.innerHTML = `
-      ${rowHTML("Overall (Both Levels)", overall)}
-      ${rowHTML("Primary", primary)}
-      ${rowHTML("Secondary", secondary)}
-      <div class="placeholder-note">Pass = any grade above F9 (total score of 40% or higher). Includes all submitted results regardless of release status.</div>
-    `;
-  } catch(e){
-    area.innerHTML = `<div class="field-error">Error loading report: ${e.message}</div>`;
-  }
-}
-
-/* ============================================================
-   PORTAL SETTINGS — General Admin only. Sets Current Term + Session,
-   used as the default pre-filled value across Results/Fees/Report Cards forms.
-============================================================ */
-function openPortalSettings(){
-  const main = document.getElementById("mainContent");
-  main.innerHTML = `
-    <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
-    <div class="section-title" style="margin-top:12px;">Portal Settings</div>
-    <div class="placeholder-note">These become the default Term and Session pre-filled across Results, Fee Records, and Report Cards forms — staff can still change them per form if needed.</div>
-    <div class="form-group">
-      <label>Current Term</label>
-      <select id="psTerm">${termOptionsHTML()}</select>
-    </div>
-    <div class="form-group">
-      <label>Current Session</label>
-      <input type="text" id="psSession" placeholder="e.g. 2025/2026" value="${defaultSession}">
-    </div>
-    <div class="field-error" id="psError"></div>
-    <div class="placeholder-note" id="psSuccess"></div>
-    <button class="btn-primary" onclick="savePortalSettings()">Save Settings</button>
-  `;
-}
-
-async function savePortalSettings(){
-  const errBox = document.getElementById("psError");
-  const successBox = document.getElementById("psSuccess");
-  errBox.textContent = "";
-  successBox.textContent = "";
-
-  const term = document.getElementById("psTerm").value;
-  const session = document.getElementById("psSession").value.trim();
-
-  if(!session){
-    errBox.textContent = "Please enter the session (e.g. 2025/2026).";
-    return;
-  }
-
-  try{
-    await db.collection("settings").doc("current").set({
-      term, session, updatedBy: currentUser.uid, updatedAt: new Date().toISOString()
-    }, { merge: true });
-    defaultTerm = term;
-    defaultSession = session;
-    successBox.textContent = "Settings saved.";
-  } catch(e){
-    errBox.textContent = "Error saving: " + e.message;
-  }
-}
-
-/* ============================================================
-   CA LIST — printable blank mark sheet for manual recording on paper
-   before entering scores into the portal. Names only; CA1/CA2/Exam/
-   Total/Grade columns are left blank.
-   context: "teacher" (own classes/subjects) | "primary" | "secondary" (admin)
-============================================================ */
-function openCAList(context){
-  const main = document.getElementById("mainContent");
-
-  let classList, subjectSource;
-  if(context === "teacher"){
-    classList = Array.isArray(currentProfile.class) ? currentProfile.class : (currentProfile.class ? [currentProfile.class] : []);
-    if(classList.length === 0){
-      main.innerHTML = `
-        <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
-        <div class="section-title" style="margin-top:12px;">CA List</div>
-        <div class="placeholder-note">No classes are assigned to your account yet. Contact your Admin.</div>
-      `;
-      return;
-    }
-  } else {
-    classList = classListForLevel(context);
-  }
-
-  main.innerHTML = `
-    <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
-    <div class="section-title" style="margin-top:12px;">CA List</div>
-    <div class="placeholder-note">Generates a blank printable sheet with student names for recording CA1, CA2, and Exam scores by hand before entering them into the portal.</div>
-    <div class="form-group">
-      <label>Class</label>
-      <select id="caClass" onchange="onCAListClassChange('${context}')">${classList.map(c => `<option value="${c}">${c}</option>`).join("")}</select>
-    </div>
-    <div class="form-group">
-      <label>Subject</label>
-      <select id="caSubject"></select>
-    </div>
-    <div class="form-group">
-      <label>Term</label>
-      <select id="caTerm">${termOptionsHTML()}</select>
-    </div>
-    <div class="form-group">
-      <label>Session</label>
-      <input type="text" id="caSession" placeholder="e.g. 2025/2026" value="${defaultSession}">
-    </div>
-    <button class="btn-primary" onclick="loadCAListStudents('${context}')">Load Students</button>
-    <div class="field-error" id="caError"></div>
-    <div id="caResultsArea" style="margin-top:16px;"></div>
-  `;
-
-  onCAListClassChange(context);
-}
-
-function onCAListClassChange(context){
-  const cls = document.getElementById("caClass").value;
-  const subjSelect = document.getElementById("caSubject");
-
-  if(context === "teacher"){
-    subjSelect.innerHTML = (currentProfile.subjects || []).map(s => `<option value="${s}">${s}</option>`).join("");
-  } else {
-    const subjects = PRIMARY_CLASSES.includes(cls) ? PRIMARY_SUBJECTS : SECONDARY_SUBJECTS;
-    subjSelect.innerHTML = subjects.map(s => `<option value="${s}">${s}</option>`).join("");
-  }
-}
-
-async function loadCAListStudents(context){
-  const errBox = document.getElementById("caError");
-  errBox.textContent = "";
-  const cls = document.getElementById("caClass").value;
-  const subject = document.getElementById("caSubject").value;
-  const term = document.getElementById("caTerm").value;
-  const session = document.getElementById("caSession").value.trim();
-
-  if(!session){
-    errBox.textContent = "Please enter the session (e.g. 2025/2026).";
-    return;
-  }
-
-  const area = document.getElementById("caResultsArea");
-  area.innerHTML = `<div class="placeholder-note">Loading students...</div>`;
-
-  try{
-    const snap = await db.collection("users").where("role","==","student").where("class","==",cls).get();
-    let students = [];
-    snap.forEach(doc => students.push({ uid: doc.id, ...doc.data() }));
-    students.sort((a,b) => (a.name || "").localeCompare(b.name || ""));
-
-    if(students.length === 0){
-      area.innerHTML = `<div class="placeholder-note">No students found in ${cls}.</div>`;
-      return;
-    }
-
-    area.innerHTML = `
-      <div style="margin-bottom:10px; font-size:14px;">${students.length} student(s) in ${cls}.</div>
-      <button class="btn-secondary" onclick="printCAList(${JSON.stringify(students.map(s => s.name || "(no name)"))}, '${cls}', '${subject}', '${term}', ${JSON.stringify(session)})">🖨️ Print Blank CA List</button>
-    `;
-  } catch(e){
-    area.innerHTML = `<div class="field-error">Error loading students: ${e.message}</div>`;
-  }
-}
-
-function printCAList(names, cls, subject, term, session){
-  const printArea = document.getElementById("printArea");
-  const rows = names.map((name, i) => `
-    <tr>
-      <td>${i + 1}</td>
-      <td>${name}</td>
-      <td></td>
-      <td></td>
-      <td></td>
-      <td></td>
-      <td></td>
-    </tr>
-  `).join("");
-
-  printArea.innerHTML = `
-    <div style="text-align:center; margin-bottom:14px;">
-      <h2 style="margin:0;">Faith International School, Itobe</h2>
-      <div style="font-style:italic;">"In God We Trust"</div>
-      <div style="margin-top:10px; font-weight:700;">Continuous Assessment (CA) List</div>
-    </div>
-    <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:14px;">
-      <div><strong>Class:</strong> ${cls}</div>
-      <div><strong>Subject:</strong> ${subject}</div>
-    </div>
-    <div style="display:flex; justify-content:space-between; margin-bottom:14px; font-size:14px;">
-      <div><strong>Term:</strong> ${term}</div>
-      <div><strong>Session:</strong> ${session}</div>
-    </div>
-    <table>
-      <thead><tr><th>#</th><th>Student Name</th><th>CA1 (/20)</th><th>CA2 (/20)</th><th>Exam (/60)</th><th>Total (/100)</th><th>Grade</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <div style="text-align:center; margin-top:20px; font-size:11px; color:#555;">Printed: ${new Date().toLocaleDateString()}</div>
-  `;
-
-  document.body.classList.add("printing");
-  window.print();
-}
-
-/* ============================================================
-   EXPORT DATA — General Admin only. Downloads a full JSON backup
-   of Users, Results, Fees, Announcements, and Settings straight to
-   the phone. Works entirely in-browser, no extra tools needed.
-============================================================ */
-function openExportData(){
-  const main = document.getElementById("mainContent");
-  main.innerHTML = `
-    <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
-    <div class="section-title" style="margin-top:12px;">Export Data</div>
-    <div class="placeholder-note">Downloads a full backup of Users, Results, Fees, Announcements, and Settings as a single JSON file to your phone. Keep this somewhere safe (e.g. Google Drive) — it's your recovery copy if anything is ever accidentally deleted.</div>
-    <button class="btn-primary" id="exportBtn" onclick="exportPortalData()">Download Backup</button>
-    <div class="placeholder-note" id="exportStatus"></div>
-  `;
-}
-
-async function exportPortalData(){
-  const status = document.getElementById("exportStatus");
-  status.textContent = "Exporting... this may take a moment.";
-
-  try{
-    const collections = ["users","results","fees","announcements","settings"];
-    const backup = {};
-
-    for(const col of collections){
-      const snap = await db.collection(col).get();
-      backup[col] = [];
-      snap.forEach(doc => backup[col].push({ id: doc.id, ...doc.data() }));
-    }
-
-    backup._exportedAt = new Date().toISOString();
-    backup._school = "Faith International School, Itobe — fiss-itobe-portal";
-
-    const json = JSON.stringify(backup, null, 2);
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const dateStr = new Date().toISOString().slice(0,10);
-    a.href = url;
-    a.download = `fiss-itobe-portal-backup-${dateStr}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-
-    status.textContent = "Backup downloaded. Check your phone's Downloads folder.";
-  } catch(e){
-    status.textContent = "Error exporting: " + e.message;
   }
 }
 
