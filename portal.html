@@ -2848,7 +2848,7 @@ function openCAList(level){
     </div>
     <div class="form-group">
       <label>Term</label>
-      <select id="caTerm">${termOptionsHTML()}</select>
+      <select id="caTerm">${TERMS.map(t => `<option value="${t}">${t}</option>`).join("")}</select>
     </div>
     <div class="form-group">
       <label>Session</label>
@@ -2959,7 +2959,7 @@ function openReportCards(level){
     </div>
     <div class="form-group">
       <label>Term</label>
-      <select id="rcTerm">${termOptionsHTML()}</select>
+      <select id="rcTerm">${TERMS.map(t => `<option value="${t}">${t}</option>`).join("")}</select>
     </div>
     <div class="form-group">
       <label>Session</label>
