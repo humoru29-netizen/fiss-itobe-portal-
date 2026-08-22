@@ -546,6 +546,8 @@ function js(v){
 }
 
 let currentUser = null;   // Firebase auth user
+let defaultTerm = "";     // Populated by loadPortalSettings(); safe default until then
+let defaultSession = "";  // Populated by loadPortalSettings(); safe default until then
 let currentProfile = null; // Firestore users/{uid} doc: {name, role, level}
 let generalAdminView = "overview"; // "primary" | "secondary" | "overview"
 let manageAccountsContext = "general"; // "general" | "primary" | "secondary"
