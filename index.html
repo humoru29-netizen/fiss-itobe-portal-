@@ -789,6 +789,10 @@ function levelAdminTiles(level){
         <div class="icon">📄</div>
         <div class="label">Report Cards</div>
       </div>
+      <div class="tile" onclick="openCAList('${lvl}')">
+        <div class="icon">🖨️</div>
+        <div class="label">CA List</div>
+      </div>
     </div>
   `;
 }
@@ -806,6 +810,10 @@ function renderTeacher(){
       <div class="tile" onclick="openAnnouncements('view')">
         <div class="icon">📢</div>
         <div class="label">Announcements</div>
+      </div>
+      <div class="tile" onclick="openCAList('teacher')">
+        <div class="icon">🖨️</div>
+        <div class="label">CA List</div>
       </div>
     </div>
   `;
@@ -2153,6 +2161,145 @@ async function savePortalSettings(){
   } catch(e){
     errBox.textContent = "Error saving: " + e.message;
   }
+}
+
+/* ============================================================
+   CA LIST — printable blank mark sheet for manual recording on paper
+   before entering scores into the portal. Names only; CA1/CA2/Exam/
+   Total/Grade columns are left blank.
+   context: "teacher" (own classes/subjects) | "primary" | "secondary" (admin)
+============================================================ */
+function openCAList(context){
+  const main = document.getElementById("mainContent");
+
+  let classList, subjectSource;
+  if(context === "teacher"){
+    classList = Array.isArray(currentProfile.class) ? currentProfile.class : (currentProfile.class ? [currentProfile.class] : []);
+    if(classList.length === 0){
+      main.innerHTML = `
+        <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
+        <div class="section-title" style="margin-top:12px;">CA List</div>
+        <div class="placeholder-note">No classes are assigned to your account yet. Contact your Admin.</div>
+      `;
+      return;
+    }
+  } else {
+    classList = classListForLevel(context);
+  }
+
+  main.innerHTML = `
+    <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
+    <div class="section-title" style="margin-top:12px;">CA List</div>
+    <div class="placeholder-note">Generates a blank printable sheet with student names for recording CA1, CA2, and Exam scores by hand before entering them into the portal.</div>
+    <div class="form-group">
+      <label>Class</label>
+      <select id="caClass" onchange="onCAListClassChange('${context}')">${classList.map(c => `<option value="${c}">${c}</option>`).join("")}</select>
+    </div>
+    <div class="form-group">
+      <label>Subject</label>
+      <select id="caSubject"></select>
+    </div>
+    <div class="form-group">
+      <label>Term</label>
+      <select id="caTerm">${termOptionsHTML()}</select>
+    </div>
+    <div class="form-group">
+      <label>Session</label>
+      <input type="text" id="caSession" placeholder="e.g. 2025/2026" value="${defaultSession}">
+    </div>
+    <button class="btn-primary" onclick="loadCAListStudents('${context}')">Load Students</button>
+    <div class="field-error" id="caError"></div>
+    <div id="caResultsArea" style="margin-top:16px;"></div>
+  `;
+
+  onCAListClassChange(context);
+}
+
+function onCAListClassChange(context){
+  const cls = document.getElementById("caClass").value;
+  const subjSelect = document.getElementById("caSubject");
+
+  if(context === "teacher"){
+    subjSelect.innerHTML = (currentProfile.subjects || []).map(s => `<option value="${s}">${s}</option>`).join("");
+  } else {
+    const subjects = PRIMARY_CLASSES.includes(cls) ? PRIMARY_SUBJECTS : SECONDARY_SUBJECTS;
+    subjSelect.innerHTML = subjects.map(s => `<option value="${s}">${s}</option>`).join("");
+  }
+}
+
+async function loadCAListStudents(context){
+  const errBox = document.getElementById("caError");
+  errBox.textContent = "";
+  const cls = document.getElementById("caClass").value;
+  const subject = document.getElementById("caSubject").value;
+  const term = document.getElementById("caTerm").value;
+  const session = document.getElementById("caSession").value.trim();
+
+  if(!session){
+    errBox.textContent = "Please enter the session (e.g. 2025/2026).";
+    return;
+  }
+
+  const area = document.getElementById("caResultsArea");
+  area.innerHTML = `<div class="placeholder-note">Loading students...</div>`;
+
+  try{
+    const snap = await db.collection("users").where("role","==","student").where("class","==",cls).get();
+    let students = [];
+    snap.forEach(doc => students.push({ uid: doc.id, ...doc.data() }));
+    students.sort((a,b) => (a.name || "").localeCompare(b.name || ""));
+
+    if(students.length === 0){
+      area.innerHTML = `<div class="placeholder-note">No students found in ${cls}.</div>`;
+      return;
+    }
+
+    area.innerHTML = `
+      <div style="margin-bottom:10px; font-size:14px;">${students.length} student(s) in ${cls}.</div>
+      <button class="btn-secondary" onclick="printCAList(${JSON.stringify(students.map(s => s.name || "(no name)"))}, '${cls}', '${subject}', '${term}', ${JSON.stringify(session)})">🖨️ Print Blank CA List</button>
+    `;
+  } catch(e){
+    area.innerHTML = `<div class="field-error">Error loading students: ${e.message}</div>`;
+  }
+}
+
+function printCAList(names, cls, subject, term, session){
+  const printArea = document.getElementById("printArea");
+  const rows = names.map((name, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${name}</td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+  `).join("");
+
+  printArea.innerHTML = `
+    <div style="text-align:center; margin-bottom:14px;">
+      <h2 style="margin:0;">Faith International School, Itobe</h2>
+      <div style="font-style:italic;">"In God We Trust"</div>
+      <div style="margin-top:10px; font-weight:700;">Continuous Assessment (CA) List</div>
+    </div>
+    <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:14px;">
+      <div><strong>Class:</strong> ${cls}</div>
+      <div><strong>Subject:</strong> ${subject}</div>
+    </div>
+    <div style="display:flex; justify-content:space-between; margin-bottom:14px; font-size:14px;">
+      <div><strong>Term:</strong> ${term}</div>
+      <div><strong>Session:</strong> ${session}</div>
+    </div>
+    <table>
+      <thead><tr><th>#</th><th>Student Name</th><th>CA1 (/20)</th><th>CA2 (/20)</th><th>Exam (/60)</th><th>Total (/100)</th><th>Grade</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="text-align:center; margin-top:20px; font-size:11px; color:#555;">Printed: ${new Date().toLocaleDateString()}</div>
+  `;
+
+  document.body.classList.add("printing");
+  window.print();
 }
 
 function classOptionsHTML(level){
