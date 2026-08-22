@@ -526,6 +526,15 @@ function resultDocId(studentUid, subject, term, session){
   return `${studentUid}_${clean(subject)}_${clean(term)}_${clean(session)}`;
 }
 
+// Surfaces any JS error as a visible alert instead of failing silently.
+// This is what "Submit for Approval" and "Load CA List" needed —
+// on mobile there's no easy way to check a browser console, so this
+// makes the actual error message visible directly on screen.
+window.onerror = function(message, source, lineno, colno, error){
+  alert("Portal error: " + message + " (line " + lineno + ")");
+  return false;
+};
+
 // Safely embed a JSON value inside a double-quoted onclick="..." attribute.
 // JSON.stringify() alone produces double quotes that prematurely close the
 // attribute (this was the cause of "Submit for Approval" and similar
@@ -812,7 +821,10 @@ function levelAdminTiles(level){
         <div class="icon">📋</div>
         <div class="label">CA List</div>
       </div>
-      ${tile("📄","Report Cards")}
+      <div class="tile" onclick="openReportCards('${lvl}')">
+        <div class="icon">📄</div>
+        <div class="label">Report Cards</div>
+      </div>
     </div>
   `;
 }
@@ -2925,6 +2937,164 @@ function printCAList(cls, subject, term, session){
       <tbody>${rows}</tbody>
     </table>
   `;
+  document.body.classList.add("printing");
+  window.print();
+}
+
+/* ============================================================
+   REPORT CARDS — Admin picks a class/term/session, sees every
+   student with their finalized (status:"generated") subject
+   scores, and can print one student or the whole class.
+============================================================ */
+function openReportCards(level){
+  const main = document.getElementById("mainContent");
+  const classList = classListForLevel(level);
+
+  main.innerHTML = `
+    <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
+    <div class="section-title" style="margin-top:12px;">Report Cards</div>
+    <div class="form-group">
+      <label>Class</label>
+      <select id="rcClass">${classList.map(c => `<option value="${c}">${c}</option>`).join("")}</select>
+    </div>
+    <div class="form-group">
+      <label>Term</label>
+      <select id="rcTerm">${termOptionsHTML()}</select>
+    </div>
+    <div class="form-group">
+      <label>Session</label>
+      <input type="text" id="rcSession" value="${defaultSession || ""}" placeholder="e.g. 2025/2026">
+    </div>
+    <button class="btn-primary" onclick="loadReportCardClass('${level}')">Load Class</button>
+    <div class="field-error" id="rcError"></div>
+    <div id="rcResultsArea" style="margin-top:16px;"></div>
+  `;
+}
+
+let currentReportCards = []; // [{ uid, name, class, subjects: [...], average, position }]
+
+async function loadReportCardClass(level){
+  const errBox = document.getElementById("rcError");
+  const area = document.getElementById("rcResultsArea");
+  errBox.textContent = "";
+
+  const cls = document.getElementById("rcClass").value;
+  const term = document.getElementById("rcTerm").value;
+  const session = document.getElementById("rcSession").value.trim();
+
+  if(!session){
+    errBox.textContent = "Please enter the session.";
+    return;
+  }
+
+  area.innerHTML = `<div class="placeholder-note">Loading...</div>`;
+
+  try{
+    const [studentSnap, resultsSnap] = await Promise.all([
+      db.collection("users").where("role","==","student").where("class","==",cls).get(),
+      db.collection("results").where("class","==",cls).where("term","==",term)
+        .where("session","==",session).where("status","==","generated").get()
+    ]);
+
+    let students = [];
+    studentSnap.forEach(doc => students.push({ uid: doc.id, name: doc.data().name || "(no name)" }));
+    students.sort((a,b) => a.name.localeCompare(b.name));
+
+    let resultsByStudent = {};
+    resultsSnap.forEach(doc => {
+      const d = doc.data();
+      if(!resultsByStudent[d.studentUid]) resultsByStudent[d.studentUid] = [];
+      resultsByStudent[d.studentUid].push(d);
+    });
+
+    currentReportCards = students.map(s => {
+      const subjects = (resultsByStudent[s.uid] || []).sort((a,b) => a.subject.localeCompare(b.subject));
+      const average = subjects.length > 0
+        ? Math.round((subjects.reduce((sum, r) => sum + (r.total || 0), 0) / subjects.length) * 10) / 10
+        : null;
+      return { uid: s.uid, name: s.name, class: cls, term, session, subjects, average };
+    });
+
+    // Rank by average, only among students who actually have results
+    const ranked = currentReportCards.filter(r => r.average !== null).sort((a,b) => b.average - a.average);
+    ranked.forEach((r, i) => { r.position = i + 1; });
+
+    renderReportCardList(cls, term, session);
+  } catch(e){
+    area.innerHTML = `<div class="field-error">Error loading class: ${e.message}</div>`;
+  }
+}
+
+function renderReportCardList(cls, term, session){
+  const area = document.getElementById("rcResultsArea");
+
+  if(currentReportCards.length === 0){
+    area.innerHTML = `<div class="placeholder-note">No students found in ${cls}.</div>`;
+    return;
+  }
+
+  const rows = currentReportCards.map((r, i) => `
+    <div style="display:flex; justify-content:space-between; align-items:center; border:1px solid var(--gray-line); border-radius:8px; padding:10px 14px; margin-bottom:8px; gap:10px;">
+      <div>
+        <div style="font-weight:600;">${r.name}</div>
+        <div style="font-size:12px; color:#666;">
+          ${r.subjects.length === 0 ? "No finalized results yet" : `${r.subjects.length} subject${r.subjects.length === 1 ? "" : "s"} · Avg ${r.average}${r.position ? " · Position " + r.position : ""}`}
+        </div>
+      </div>
+      <button class="btn-secondary" style="width:auto; margin:0;" ${r.subjects.length === 0 ? "disabled" : ""} onclick="printReportCard(${i})">🖨️ Print</button>
+    </div>
+  `).join("");
+
+  area.innerHTML = `
+    <button class="btn-secondary" onclick="printAllReportCards()">🖨️ Print Whole Class</button>
+    <div style="margin-top:10px;">${rows}</div>
+  `;
+}
+
+function reportCardHTML(r){
+  const subjectRows = r.subjects.map(s => `
+    <tr><td>${s.subject}</td><td>${s.ca1}</td><td>${s.ca2}</td><td>${s.exam}</td><td>${s.total}</td><td>${s.grade}</td><td>${s.remark}</td></tr>
+  `).join("");
+
+  return `
+    <div style="page-break-after:always; padding-bottom:20px;">
+      <div style="text-align:center; margin-bottom:14px;">
+        <h2 style="margin:0;">Faith International School, Itobe</h2>
+        <div style="font-style:italic;">"In God We Trust"</div>
+        <div style="margin-top:8px; font-weight:700;">Student Report Card</div>
+      </div>
+      <table style="margin-bottom:10px;">
+        <tbody>
+          <tr><td><strong>Student</strong></td><td>${r.name}</td><td><strong>Class</strong></td><td>${r.class}</td></tr>
+          <tr><td><strong>Term</strong></td><td>${r.term}</td><td><strong>Session</strong></td><td>${r.session}</td></tr>
+        </tbody>
+      </table>
+      <table>
+        <thead><tr><th>Subject</th><th>CA1/20</th><th>CA2/20</th><th>Exam/60</th><th>Total/100</th><th>Grade</th><th>Remark</th></tr></thead>
+        <tbody>${subjectRows}</tbody>
+      </table>
+      <div style="margin-top:12px; font-weight:700;">
+        Overall Average: ${r.average}${r.position ? " · Class Position: " + r.position : ""}
+      </div>
+    </div>
+  `;
+}
+
+function printReportCard(index){
+  const printArea = document.getElementById("printArea");
+  printArea.innerHTML = reportCardHTML(currentReportCards[index]);
+  document.body.classList.add("printing");
+  window.print();
+}
+
+function printAllReportCards(){
+  const printArea = document.getElementById("printArea");
+  const withResults = currentReportCards.filter(r => r.subjects.length > 0);
+  if(withResults.length === 0){
+    alert("No students with finalized results to print yet.");
+    return;
+  }
+  printArea.innerHTML = withResults.map(reportCardHTML).join("");
   document.body.classList.add("printing");
   window.print();
 }
