@@ -526,6 +526,16 @@ function resultDocId(studentUid, subject, term, session){
   return `${studentUid}_${clean(subject)}_${clean(term)}_${clean(session)}`;
 }
 
+// Safely embed a JSON value inside a double-quoted onclick="..." attribute.
+// JSON.stringify() alone produces double quotes that prematurely close the
+// attribute (this was the cause of "Submit for Approval" and similar
+// buttons doing nothing when tapped — the browser silently drops a broken
+// inline handler with no visible error). &quot; is decoded back to " by
+// the browser before the JS runs, so the call still receives the real value.
+function js(v){
+  return JSON.stringify(v).replace(/"/g, "&quot;");
+}
+
 let currentUser = null;   // Firebase auth user
 let currentProfile = null; // Firestore users/{uid} doc: {name, role, level}
 let generalAdminView = "overview"; // "primary" | "secondary" | "overview"
@@ -996,7 +1006,7 @@ function renderManageAccountsList(users, activeClassFilter){
       </div>
       <div style="display:flex; gap:8px; flex-shrink:0;">
         <button class="btn-secondary" onclick="openEditAccountModal('${u.uid}')">Edit</button>
-        <button class="btn-secondary" style="color:#b00020;" onclick="removeAccountConfirm('${u.uid}', ${JSON.stringify(u.name || "this user")})">Remove</button>
+        <button class="btn-secondary" style="color:#b00020;" onclick="removeAccountConfirm('${u.uid}', ${js(u.name || "this user")})">Remove</button>
       </div>
     </div>
   `;
@@ -1294,7 +1304,7 @@ function renderTeacherResultsTable(cls, subject, term, session){
     </div>
     ${rows}
     ${anyLocked ? `<div class="placeholder-note">Some results here have already been finalized by Admin and can no longer be edited by you.</div>` : ""}
-    <button class="btn-primary" onclick="submitTeacherResults('${cls}','${subject}','${term}',${JSON.stringify(session)})">Submit for Approval</button>
+    <button class="btn-primary" onclick="submitTeacherResults('${cls}','${subject}','${term}',${js(session)})">Submit for Approval</button>
   `;
 }
 
@@ -1440,12 +1450,12 @@ function renderApprovalResults(results, cls, subject, term, session){
     ${submitted.length > 0 ? `
       <div class="section-title">Awaiting Generation (${submitted.length})</div>
       ${submittedRows}
-      <button class="btn-primary" onclick="generateResults('${cls}','${subject}','${term}',${JSON.stringify(session)})">Generate Results</button>
+      <button class="btn-primary" onclick="generateResults('${cls}','${subject}','${term}',${js(session)})">Generate Results</button>
     ` : ""}
     ${finalized.length > 0 ? `
       <div class="section-title" style="margin-top:16px;">Generated (${finalized.length})</div>
       ${finalizedRows}
-      <button class="btn-primary" onclick="releaseAllResults('${cls}','${subject}','${term}',${JSON.stringify(session)})">Release All (except withheld)</button>
+      <button class="btn-primary" onclick="releaseAllResults('${cls}','${subject}','${term}',${js(session)})">Release All (except withheld)</button>
     ` : ""}
   `;
 }
@@ -1682,14 +1692,14 @@ function renderFeeTable(cls, term, session){
         </div>
         <div style="display:flex; gap:6px; align-items:center; margin-top:8px;">
           <input type="number" min="1" placeholder="Add payment ₦" id="pay_${i}" style="width:130px;">
-          <button class="btn-secondary" onclick="addPayment(${i}, '${cls}', '${term}', ${JSON.stringify(session)})">Add Payment</button>
+          <button class="btn-secondary" onclick="addPayment(${i}, '${cls}', '${term}', ${js(session)})">Add Payment</button>
         </div>
       </div>
     `;
   }).join("");
 
   area.innerHTML = `
-    <button class="btn-secondary" onclick="printFeeList('${cls}','${term}',${JSON.stringify(session)})">🖨️ Print Fee List</button>
+    <button class="btn-secondary" onclick="printFeeList('${cls}','${term}',${js(session)})">🖨️ Print Fee List</button>
     <div style="margin-top:10px;">${rows}</div>
   `;
 }
@@ -2754,7 +2764,7 @@ async function openCrossLevelReport(){
     main.innerHTML = `
       <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
       <div class="section-title" style="margin-top:12px;">Cross-Level Reports</div>
-      <button class="btn-secondary" onclick="printCrossLevelReport(${JSON.stringify(counts)})">🖨️ Print Report</button>
+      <button class="btn-secondary" onclick="printCrossLevelReport(${js(counts)})">🖨️ Print Report</button>
       <div style="overflow-x:auto; margin-top:14px;">
         <table style="width:100%; border-collapse:collapse; font-size:13.5px;">
           <thead>
@@ -2880,7 +2890,7 @@ async function loadCAList(){
     `).join("");
 
     area.innerHTML = `
-      <button class="btn-secondary" onclick="printCAList('${cls}','${subject}','${term}',${JSON.stringify(session)})">🖨️ Print CA List</button>
+      <button class="btn-secondary" onclick="printCAList('${cls}','${subject}','${term}',${js(session)})">🖨️ Print CA List</button>
       <div style="overflow-x:auto; margin-top:10px;">
         <table style="width:100%; border-collapse:collapse; font-size:13.5px;">
           <thead>
