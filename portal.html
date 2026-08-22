@@ -805,7 +805,7 @@ function tile(icon, label){
    context: "general" (General Admin — any role), "primary", "secondary"
    (Level Admin — role locked to student/teacher/cashier, level locked)
 ============================================================ */
-function openAccountModal(context){
+function openAccountModal(context, preselectRole){
   const modal = document.getElementById("accountModal");
   const body = document.getElementById("modalBody");
   document.getElementById("modalTitle").textContent = "Create Account";
@@ -849,6 +849,11 @@ function openAccountModal(context){
 
   // Level Admin context: role is restricted but still chosen by admin (student/teacher/cashier)
   document.getElementById("accRole").dataset.context = context;
+
+  if(preselectRole){
+    document.getElementById("accRole").value = preselectRole;
+    onRoleChange(context);
+  }
 }
 
 function closeAccountModal(){
@@ -859,6 +864,8 @@ function closeAccountModal(){
    MANAGE ACCOUNTS — list, edit, remove existing teacher/student/cashier accounts.
    context: "general" (all levels), "primary", "secondary"
 ============================================================ */
+let lastManageAccountsUsers = [];
+
 async function openManageAccounts(context){
   manageAccountsContext = context;
   const main = document.getElementById("mainContent");
@@ -873,16 +880,27 @@ async function openManageAccounts(context){
       users = users.filter(u => u.level === context || u.level === "both");
     }
 
+    lastManageAccountsUsers = users;
     renderManageAccountsList(users);
   } catch(e){
     main.innerHTML = `<div class="section-title">Manage Accounts</div><div class="field-error">Error loading accounts: ${e.message}</div>`;
   }
 }
 
-function renderManageAccountsList(users){
+function filterStudentsByClass(cls){
+  const filtered = cls
+    ? lastManageAccountsUsers.filter(u => u.role !== "student" || u.class === cls)
+    : lastManageAccountsUsers;
+  renderManageAccountsList(filtered, cls);
+}
+
+function renderManageAccountsList(users, activeClassFilter){
   const main = document.getElementById("mainContent");
   const grouped = { teacher: [], student: [], cashier: [] };
   users.forEach(u => { if(grouped[u.role]) grouped[u.role].push(u); });
+
+  const lockedLevel = (manageAccountsContext === "primary" || manageAccountsContext === "secondary") ? manageAccountsContext : null;
+  const classFilterOptions = classOptionsHTML(lockedLevel);
 
   const rowHTML = (u) => `
     <div style="display:flex; justify-content:space-between; align-items:center; border:1px solid var(--gray-line); border-radius:8px; padding:10px 14px; margin-bottom:8px; gap:10px;">
@@ -901,10 +919,29 @@ function renderManageAccountsList(users){
     </div>
   `;
 
-  const section = (label, list) => `
-    <div class="section-title">${label} (${list.length})</div>
-    ${list.length === 0 ? `<div class="placeholder-note">No ${label.toLowerCase()} accounts yet.</div>` : list.map(rowHTML).join("")}
-  `;
+  const section = (label, list) => {
+    if(label !== "Students"){
+      return `
+        <div class="section-title">${label} (${list.length})</div>
+        ${list.length === 0 ? `<div class="placeholder-note">No ${label.toLowerCase()} accounts yet.</div>` : list.map(rowHTML).join("")}
+      `;
+    }
+    return `
+      <div class="section-title">Students (${list.length})</div>
+      <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
+        <button class="btn-secondary" style="width:auto; margin:0;" onclick="openAccountModal('${manageAccountsContext}', 'student')">➕ Add Single Student</button>
+        <button class="btn-secondary" style="width:auto; margin:0;" onclick="openBulkAddStudents()">➕ Add Students in Bulk</button>
+      </div>
+      <div class="form-group" style="max-width:280px;">
+        <label>Filter by Class</label>
+        <select onchange="filterStudentsByClass(this.value)">
+          <option value="">All Classes</option>
+          ${classFilterOptions}
+        </select>
+      </div>
+      ${list.length === 0 ? `<div class="placeholder-note">No student accounts${activeClassFilter ? ` in ${activeClassFilter}` : ""}.</div>` : list.map(rowHTML).join("")}
+    `;
+  };
 
   main.innerHTML = `
     <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
@@ -914,6 +951,12 @@ function renderManageAccountsList(users){
       ${section("Cashiers", grouped.cashier)}
     </div>
   `;
+
+  if(activeClassFilter){
+    // restore the dropdown's selected value after re-render
+    const sel = main.querySelector('select[onchange^="filterStudentsByClass"]');
+    if(sel) sel.value = activeClassFilter;
+  }
 }
 
 async function openEditAccountModal(uid){
@@ -2162,6 +2205,147 @@ function showCredentials(data){
 function closeCredentialsPanel(){
   document.getElementById("credentialsPanel").classList.add("hidden");
   renderDashboard(); // refresh underlying dashboard
+}
+
+/* ============================================================
+   BULK ADD STUDENTS — pick one class, paste a list of names
+   (one per line), and create an account for each. Since
+   passwords can't be retrieved later, ALL results are shown
+   together at the end with a print/save option — not one
+   modal per student.
+============================================================ */
+function openBulkAddStudents(){
+  const main = document.getElementById("mainContent");
+  const lockedLevel = (manageAccountsContext === "primary" || manageAccountsContext === "secondary") ? manageAccountsContext : null;
+
+  main.innerHTML = `
+    <button class="btn-secondary" onclick="openManageAccounts('${manageAccountsContext}')">&larr; Back to Manage Accounts</button>
+    <div class="section-title" style="margin-top:12px;">Add Students in Bulk</div>
+    <div class="form-group">
+      <label>Class</label>
+      <select id="bulkClass">
+        <option value="">Select class...</option>
+        ${classOptionsHTML(lockedLevel)}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Student Names (one per line)</label>
+      <textarea id="bulkNames" rows="10" style="width:100%; padding:10px 12px; border:1px solid var(--gray-line); border-radius:8px; font-size:14px;" placeholder="Musa Ibrahim
+Amaka Obi
+Chidi Eze"></textarea>
+      <small style="color:#666;">Each line becomes one student account. Usernames and passwords are generated automatically, same as single account creation.</small>
+    </div>
+    <button class="btn-primary" onclick="submitBulkAddStudents()">Create Accounts</button>
+    <div class="field-error" id="bulkError"></div>
+    <div id="bulkProgressArea" style="margin-top:16px;"></div>
+  `;
+}
+
+function bulkGenerateUsername(name, taken){
+  const clean = (name || "student").trim().toLowerCase().replace(/[^a-z]/g, "");
+  const initials = clean.slice(0, 6) || "student";
+  let username;
+  do {
+    const rand = Math.floor(100 + Math.random() * 900);
+    username = `${initials}${rand}@fissportal.local`;
+  } while(taken.has(username));
+  taken.add(username);
+  return username;
+}
+
+async function submitBulkAddStudents(){
+  const errBox = document.getElementById("bulkError");
+  const progressArea = document.getElementById("bulkProgressArea");
+  errBox.textContent = "";
+
+  const classAssigned = document.getElementById("bulkClass").value;
+  const rawNames = document.getElementById("bulkNames").value
+    .split("\n").map(n => n.trim()).filter(n => n.length > 0);
+
+  if(!classAssigned){
+    errBox.textContent = "Please select a class.";
+    return;
+  }
+  if(rawNames.length === 0){
+    errBox.textContent = "Enter at least one student name.";
+    return;
+  }
+
+  const level = PRIMARY_CLASSES.includes(classAssigned) ? "primary" : "secondary";
+  const usedUsernames = new Set();
+  const results = []; // { name, username, password, status: "ok"|"error", message? }
+
+  progressArea.innerHTML = `<div class="placeholder-note">Creating accounts: 0 / ${rawNames.length}...</div>`;
+
+  for(let i = 0; i < rawNames.length; i++){
+    const name = rawNames[i];
+    const username = bulkGenerateUsername(name, usedUsernames);
+    const password = generatePassword();
+
+    try{
+      const cred = await secondaryAuth.createUserWithEmailAndPassword(username, password);
+      const uid = cred.user.uid;
+      await secondaryAuth.signOut();
+
+      await db.collection("users").doc(uid).set({
+        name, email: username, role: "student", level, class: classAssigned,
+        createdAt: new Date().toISOString(), createdBy: currentUser.uid
+      });
+
+      results.push({ name, username, password, status: "ok" });
+    } catch(e){
+      results.push({ name, username, password, status: "error", message: e.message });
+    }
+
+    progressArea.innerHTML = `<div class="placeholder-note">Creating accounts: ${i + 1} / ${rawNames.length}...</div>`;
+  }
+
+  renderBulkResults(results, classAssigned);
+}
+
+function renderBulkResults(results, classAssigned){
+  const progressArea = document.getElementById("bulkProgressArea");
+  const okRows = results.filter(r => r.status === "ok");
+  const errorRows = results.filter(r => r.status === "error");
+
+  const rowHTML = (r) => `
+    <div class="cred-row"><span class="k">${r.name}</span><span class="v">${r.username} · ${r.password}</span></div>
+  `;
+
+  progressArea.innerHTML = `
+    <div class="section-title" style="margin-top:0;">Done — ${okRows.length} of ${results.length} created</div>
+    ${errorRows.length > 0 ? `
+      <div class="field-error" style="margin-bottom:10px;">
+        ${errorRows.length} failed: ${errorRows.map(r => `${r.name} (${r.message})`).join("; ")}
+      </div>
+    ` : ""}
+    ${okRows.length > 0 ? `
+      <div class="cred-warning">Save or share these now — passwords cannot be retrieved again later.</div>
+      <div style="margin-top:10px;">${okRows.map(rowHTML).join("")}</div>
+      <button class="btn-secondary" onclick='printBulkResults(${JSON.stringify(okRows)}, ${JSON.stringify(classAssigned)})'>🖨️ Print List</button>
+    ` : ""}
+    <button class="btn-primary" style="margin-top:14px;" onclick="openManageAccounts('${manageAccountsContext}')">Back to Manage Accounts</button>
+  `;
+}
+
+function printBulkResults(okRows, classAssigned){
+  const printArea = document.getElementById("printArea");
+  const rows = okRows.map(r => `<tr><td>${r.name}</td><td>${r.username}</td><td>${r.password}</td></tr>`).join("");
+
+  printArea.innerHTML = `
+    <div style="text-align:center; margin-bottom:14px;">
+      <h2 style="margin:0;">Faith International School, Itobe</h2>
+      <div style="font-style:italic;">"In God We Trust"</div>
+      <div style="margin-top:8px; font-weight:600;">New Student Logins — ${classAssigned}</div>
+      <div style="font-size:12px; color:#555;">Generated: ${new Date().toLocaleDateString()}</div>
+    </div>
+    <table>
+      <thead><tr><th>Name</th><th>Username</th><th>Password</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+  document.body.classList.add("printing");
+  window.print();
 }
 </script>
 </body>
