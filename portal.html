@@ -535,37 +535,42 @@ window.onerror = function(message, source, lineno, colno, error){
   return false;
 };
 
-// Opens print content in its own blank window/tab, so there is nothing
-// else on that screen for a print action to accidentally capture. This
-// replaces the earlier approach of hiding the live app UI via CSS, which
-// wasn't reliable enough on some Android setups — this way, whatever
-// print method is used (in-app or the browser's own), only this content
-// exists to print.
+// Opens print content in its own genuine browser tab (via a Blob URL,
+// not window.open + document.write — that combination proved unreliable
+// on some Android Chrome builds and could show stale content). Nothing
+// prints automatically: the new tab shows the content plus its own
+// visible Print button, so what you see is exactly what will print.
 function openPrintWindow(bodyHTML){
-  const printWin = window.open("", "_blank");
-  if(!printWin){
+  const fullHTML = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Faith International School, Itobe — Print</title>
+  <style>
+    body{ font-family: Georgia, 'Times New Roman', serif; color:#111; margin:20px; }
+    table{ width:100%; border-collapse:collapse; }
+    th, td{ border:1px solid #000; padding:6px 8px; text-align:left; font-size:13px; }
+    .print-btn-bar{ text-align:center; margin-bottom:20px; }
+    .print-btn-bar button{
+      padding:14px 28px; font-size:16px; font-weight:700; color:#fff;
+      background:#6B0F1A; border:none; border-radius:8px;
+    }
+    @media print{ .print-btn-bar{ display:none !important; } }
+  </style>
+</head>
+<body>
+  <div class="print-btn-bar"><button onclick="window.print()">🖨️ Print This Page</button></div>
+  ${bodyHTML}
+</body>
+</html>`;
+
+  const blob = new Blob([fullHTML], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, "_blank");
+  if(!win){
     alert("Please allow pop-ups for this site so receipts and reports can open for printing.");
-    return;
   }
-  printWin.document.write(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="UTF-8">
-      <title>Faith International School, Itobe — Print</title>
-      <style>
-        body{ font-family: Georgia, 'Times New Roman', serif; color:#111; margin:20px; }
-        table{ width:100%; border-collapse:collapse; }
-        th, td{ border:1px solid #000; padding:6px 8px; text-align:left; font-size:13px; }
-      </style>
-    </head>
-    <body>${bodyHTML}</body>
-    </html>
-  `);
-  printWin.document.close();
-  const doPrint = () => { try{ printWin.focus(); printWin.print(); }catch(e){} };
-  printWin.onload = doPrint;
-  setTimeout(doPrint, 400); // fallback in case onload doesn't fire promptly
 }
 
 // Reliably prints #printArea's current content. A fixed setTimeout isn't
