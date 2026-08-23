@@ -535,6 +535,39 @@ window.onerror = function(message, source, lineno, colno, error){
   return false;
 };
 
+// Opens print content in its own blank window/tab, so there is nothing
+// else on that screen for a print action to accidentally capture. This
+// replaces the earlier approach of hiding the live app UI via CSS, which
+// wasn't reliable enough on some Android setups — this way, whatever
+// print method is used (in-app or the browser's own), only this content
+// exists to print.
+function openPrintWindow(bodyHTML){
+  const printWin = window.open("", "_blank");
+  if(!printWin){
+    alert("Please allow pop-ups for this site so receipts and reports can open for printing.");
+    return;
+  }
+  printWin.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>Faith International School, Itobe — Print</title>
+      <style>
+        body{ font-family: Georgia, 'Times New Roman', serif; color:#111; margin:20px; }
+        table{ width:100%; border-collapse:collapse; }
+        th, td{ border:1px solid #000; padding:6px 8px; text-align:left; font-size:13px; }
+      </style>
+    </head>
+    <body>${bodyHTML}</body>
+    </html>
+  `);
+  printWin.document.close();
+  const doPrint = () => { try{ printWin.focus(); printWin.print(); }catch(e){} };
+  printWin.onload = doPrint;
+  setTimeout(doPrint, 400); // fallback in case onload doesn't fire promptly
+}
+
 // Reliably prints #printArea's current content. A fixed setTimeout isn't
 // guaranteed to run after the browser has actually finished painting the
 // new content on every device — forcing a layout read, then waiting two
@@ -1839,7 +1872,7 @@ function renderFeeTable(cls, term, session){
         <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
           <label style="font-size:12px;">Total Fee ₦
             <input type="number" min="0" value="${s.totalFee}" style="width:90px;"
-              onchange="setTotalFee(${i}, this.value, '${cls}', '${term}', ${JSON.stringify(session)})">
+              onchange="setTotalFee(${i}, this.value, '${cls}', '${term}', ${js(session)})">
           </label>
           <span style="font-size:12px;">Paid: ₦${s.amountPaid}</span>
           <span style="font-size:12px; font-weight:700; color:${balance > 0 ? "#b00020" : "#1a7a1a"};">Balance: ₦${balance}</span>
@@ -1859,14 +1892,13 @@ function renderFeeTable(cls, term, session){
 }
 
 async function printFeeList(cls, term, session){
-  const printArea = document.getElementById("printArea");
   const rows = currentFeeBatch.map(s => {
     const balance = s.totalFee - s.amountPaid;
     return `<tr><td>${s.name}</td><td>₦${s.totalFee}</td><td>₦${s.amountPaid}</td><td>₦${balance}</td></tr>`;
   }).join("");
   const totalOutstanding = currentFeeBatch.reduce((sum, s) => sum + (s.totalFee - s.amountPaid), 0);
 
-  printArea.innerHTML = `
+  openPrintWindow(`
     <div style="text-align:center; margin-bottom:14px;">
       <h2 style="margin:0;">Faith International School, Itobe</h2>
       <div style="font-style:italic;">"In God We Trust"</div>
@@ -1878,10 +1910,7 @@ async function printFeeList(cls, term, session){
       <tbody>${rows}</tbody>
     </table>
     <div style="margin-top:12px; font-weight:700;">Total Outstanding: ₦${totalOutstanding}</div>
-  `;
-
-  document.body.classList.add("printing");
-  triggerPrint();
+  `);
 }
 
 window.addEventListener("afterprint", () => {
@@ -1954,9 +1983,7 @@ async function addPayment(i, cls, term, session){
    openReceiptLookup() lets a cashier search and reprint any past receipt.
 ============================================================ */
 function printReceipt(r){
-  const printArea = document.getElementById("printArea");
-  const balanceNote = ""; // kept simple: receipt shows the payment, not running balance
-  printArea.innerHTML = `
+  openPrintWindow(`
     <div style="text-align:center; margin-bottom:14px;">
       <h2 style="margin:0;">Faith International School, Itobe</h2>
       <div style="font-style:italic;">"In God We Trust"</div>
@@ -1974,9 +2001,7 @@ function printReceipt(r){
       </tbody>
     </table>
     <div style="margin-top:16px; font-size:12px; color:#555;">This receipt is computer-generated and valid without a signature.</div>
-  `;
-  document.body.classList.add("printing");
-  triggerPrint();
+  `);
 }
 
 function openReceiptLookup(){
@@ -2133,14 +2158,13 @@ async function loadCashierReport(){
 }
 
 function printCashierReport(){
-  const printArea = document.getElementById("printArea");
   const total = currentReportBatch.reduce((sum, r) => sum + (r.amount || 0), 0);
   const rows = currentReportBatch.map(r => `
     <tr><td>${new Date(r.createdAt).toLocaleDateString()}</td><td>${r.studentName}</td><td>${r.class}</td>
     <td>₦${r.amount}</td><td>${r.term}</td><td>${r.session}</td><td>${r.cashierName}</td><td>${r.receiptNo}</td></tr>
   `).join("");
 
-  printArea.innerHTML = `
+  openPrintWindow(`
     <div style="text-align:center; margin-bottom:14px;">
       <h2 style="margin:0;">Faith International School, Itobe</h2>
       <div style="font-style:italic;">"In God We Trust"</div>
@@ -2152,9 +2176,7 @@ function printCashierReport(){
       <tbody>${rows}</tbody>
     </table>
     <div style="margin-top:12px; font-weight:700;">Total Collected: ₦${total}</div>
-  `;
-  document.body.classList.add("printing");
-  triggerPrint();
+  `);
 }
 
 /* ---------- STUDENT VIEW ---------- */
@@ -2575,10 +2597,9 @@ function renderBulkResults(results, classAssigned){
 }
 
 function printBulkResults(okRows, classAssigned){
-  const printArea = document.getElementById("printArea");
   const rows = okRows.map(r => `<tr><td>${r.name}</td><td>${r.username}</td><td>${r.password}</td></tr>`).join("");
 
-  printArea.innerHTML = `
+  openPrintWindow(`
     <div style="text-align:center; margin-bottom:14px;">
       <h2 style="margin:0;">Faith International School, Itobe</h2>
       <div style="font-style:italic;">"In God We Trust"</div>
@@ -2589,9 +2610,7 @@ function printBulkResults(okRows, classAssigned){
       <thead><tr><th>Name</th><th>Username</th><th>Password</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
-  `;
-  document.body.classList.add("printing");
-  triggerPrint();
+  `);
 }
 
 /* ============================================================
@@ -2945,8 +2964,7 @@ async function openCrossLevelReport(){
 }
 
 function printCrossLevelReport(counts){
-  const printArea = document.getElementById("printArea");
-  printArea.innerHTML = `
+  openPrintWindow(`
     <div style="text-align:center; margin-bottom:14px;">
       <h2 style="margin:0;">Faith International School, Itobe</h2>
       <div style="font-style:italic;">"In God We Trust"</div>
@@ -2962,9 +2980,7 @@ function printCrossLevelReport(counts){
         <tr><td>Fees Outstanding</td><td>₦${counts.primary.outstanding}</td><td>₦${counts.secondary.outstanding}</td></tr>
       </tbody>
     </table>
-  `;
-  document.body.classList.add("printing");
-  triggerPrint();
+  `);
 }
 
 /* ============================================================
@@ -3062,12 +3078,11 @@ async function loadCAList(){
 }
 
 function printCAList(cls, subject, term, session){
-  const printArea = document.getElementById("printArea");
   const rows = currentCABatch.map(r => `
     <tr><td>${r.studentName}</td><td>${r.ca1}</td><td>${r.ca2}</td><td>${(Number(r.ca1)||0) + (Number(r.ca2)||0)}</td></tr>
   `).join("");
 
-  printArea.innerHTML = `
+  openPrintWindow(`
     <div style="text-align:center; margin-bottom:14px;">
       <h2 style="margin:0;">Faith International School, Itobe</h2>
       <div style="font-style:italic;">"In God We Trust"</div>
@@ -3078,9 +3093,7 @@ function printCAList(cls, subject, term, session){
       <thead><tr><th>Student</th><th>CA1/20</th><th>CA2/20</th><th>CA Total/40</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
-  `;
-  document.body.classList.add("printing");
-  triggerPrint();
+  `);
 }
 
 /* ============================================================
@@ -3333,22 +3346,16 @@ function reportCardHTML(r){
 }
 
 function printReportCard(index){
-  const printArea = document.getElementById("printArea");
-  printArea.innerHTML = reportCardHTML(currentReportCards[index]);
-  document.body.classList.add("printing");
-  triggerPrint();
+  openPrintWindow(reportCardHTML(currentReportCards[index]));
 }
 
 function printAllReportCards(){
-  const printArea = document.getElementById("printArea");
   const withResults = currentReportCards.filter(r => r.subjects.length > 0);
   if(withResults.length === 0){
     alert("No students with finalized results to print yet.");
     return;
   }
-  printArea.innerHTML = withResults.map(reportCardHTML).join("");
-  document.body.classList.add("printing");
-  triggerPrint();
+  openPrintWindow(withResults.map(reportCardHTML).join(""));
 }
 
 /* ============================================================
@@ -3492,7 +3499,6 @@ function renderMasterList(){
 }
 
 function printMasterList(){
-  const printArea = document.getElementById("printArea");
   const { cls, term, session, subjects, rows } = currentMasterList;
 
   const headerCells = subjects.map(s => `<th>${s}</th>`).join("");
@@ -3506,7 +3512,7 @@ function printMasterList(){
     </tr>
   `).join("");
 
-  printArea.innerHTML = `
+  openPrintWindow(`
     <div style="text-align:center; margin-bottom:14px;">
       <h2 style="margin:0;">Faith International School, Itobe</h2>
       <div style="font-style:italic;">"In God We Trust"</div>
@@ -3517,9 +3523,7 @@ function printMasterList(){
       <thead><tr><th>Student</th>${headerCells}<th>Total</th><th>Avg</th><th>Pos</th></tr></thead>
       <tbody>${bodyRows}</tbody>
     </table>
-  `;
-  document.body.classList.add("printing");
-  triggerPrint();
+  `);
 }
 </script>
 </body>
