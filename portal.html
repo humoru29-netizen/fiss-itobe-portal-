@@ -3134,7 +3134,7 @@ async function loadReportCardClass(level){
       const average = subjects.length > 0
         ? Math.round((subjects.reduce((sum, r) => sum + (r.total || 0), 0) / subjects.length) * 10) / 10
         : null;
-      return { uid: s.uid, name: s.name, class: cls, term, session, subjects, average };
+      return { uid: s.uid, name: s.name, class: cls, term, session, level, subjects, average };
     });
 
     // Rank by average, only among students who actually have results
@@ -3174,67 +3174,130 @@ function renderReportCardList(cls, term, session){
 }
 
 function reportCardHTML(r){
-  const subjectRows = r.subjects.map(s => `
+  const subjectRows = r.subjects.map((s, i) => `
     <tr>
-      <td>${s.subject}</td>
-      <td style="text-align:center;">${s.ca1}</td>
-      <td style="text-align:center;">${s.ca2}</td>
-      <td style="text-align:center;">${s.exam}</td>
-      <td style="text-align:center; font-weight:700;">${s.total}</td>
-      <td style="text-align:center; font-weight:700;">${s.grade}</td>
-      <td>${s.remark}</td>
+      <td style="border:1px solid #333; padding:7px 6px; text-align:center;">${i + 1}</td>
+      <td style="border:1px solid #333; padding:7px 8px; text-align:left;">${s.subject}</td>
+      <td style="border:1px solid #333; padding:7px 6px; text-align:center;">${s.ca1}</td>
+      <td style="border:1px solid #333; padding:7px 6px; text-align:center;">${s.ca2}</td>
+      <td style="border:1px solid #333; padding:7px 6px; text-align:center;">${s.exam}</td>
+      <td style="border:1px solid #333; padding:7px 6px; text-align:center; font-weight:700;">${s.total}</td>
+      <td style="border:1px solid #333; padding:7px 6px; text-align:center; font-weight:700;">${s.grade}</td>
+      <td style="border:1px solid #333; padding:7px 8px; text-align:left;">${s.remark}</td>
     </tr>
   `).join("");
 
+  const totalObtainable = r.subjects.length * 100;
+  const totalScored = r.subjects.reduce((sum, s) => sum + (s.total || 0), 0);
+
+  const bioCell = (label, value) => `
+    <td style="border:1px solid #333; padding:6px 10px; vertical-align:top;">
+      <div style="font-size:9.5px; text-transform:uppercase; letter-spacing:1px; color:#555;">${label}</div>
+      <div style="font-size:14px; font-weight:700; margin-top:2px;">${value}</div>
+    </td>
+  `;
+
   return `
-    <div style="page-break-after:always; padding:24px; font-family: 'Segoe UI', Roboto, Arial, sans-serif; color:#111;">
-      <div style="text-align:center; border-bottom:4px double #6B0F1A; padding-bottom:14px; margin-bottom:16px;">
-        <svg width="56" height="56" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin:0 auto 6px;">
-          <path d="M32 4 L56 14 V30 C56 46 46 56 32 60 C18 56 8 46 8 30 V14 Z" fill="#6B0F1A" opacity="0.08"/>
-          <path d="M32 4 L56 14 V30 C56 46 46 56 32 60 C18 56 8 46 8 30 V14 Z" stroke="#6B0F1A" stroke-width="2"/>
-          <path d="M32 16 L32 44 M20 30 L44 30" stroke="#6B0F1A" stroke-width="2.5"/>
+    <div style="page-break-after:always; position:relative; font-family: Georgia, 'Times New Roman', serif; color:#111;">
+      <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; opacity:0.05; z-index:0; pointer-events:none;">
+        <svg width="340" height="340" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M32 4 L56 14 V30 C56 46 46 56 32 60 C18 56 8 46 8 30 V14 Z" fill="#6B0F1A"/>
+          <path d="M32 16 L32 44 M20 30 L44 30" stroke="#fff" stroke-width="2.5"/>
         </svg>
-        <div style="font-size:22px; font-weight:800; color:#6B0F1A; letter-spacing:0.3px;">FAITH INTERNATIONAL SCHOOL, ITOBE</div>
-        <div style="font-style:italic; font-size:13px; color:#555; margin-top:2px;">"In God We Trust"</div>
-        <div style="font-size:15px; font-weight:700; margin-top:10px; text-transform:uppercase; letter-spacing:1px;">Student Report Card</div>
-        <div style="font-size:11.5px; color:#777; margin-top:2px;">WAEC-Style Grading (A1 – F9)</div>
       </div>
 
-      <table style="width:100%; border-collapse:collapse; margin-bottom:16px; font-size:14px;">
-        <tbody>
-          <tr>
-            <td style="padding:4px 8px 4px 0; width:20%;"><strong>Student</strong></td><td style="padding:4px 0;">${r.name}</td>
-            <td style="padding:4px 8px 4px 24px; width:15%;"><strong>Class</strong></td><td style="padding:4px 0;">${r.class}</td>
-          </tr>
-          <tr>
-            <td style="padding:4px 8px 4px 0;"><strong>Term</strong></td><td style="padding:4px 0;">${r.term}</td>
-            <td style="padding:4px 8px 4px 24px;"><strong>Session</strong></td><td style="padding:4px 0;">${r.session}</td>
-          </tr>
-        </tbody>
-      </table>
+      <div style="position:relative; z-index:1; border:6px double #6B0F1A; padding:26px 30px;">
+        <div style="text-align:center; margin-bottom:16px;">
+          <svg width="60" height="60" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin:0 auto 8px;">
+            <path d="M32 4 L56 14 V30 C56 46 46 56 32 60 C18 56 8 46 8 30 V14 Z" fill="#6B0F1A" opacity="0.1"/>
+            <path d="M32 4 L56 14 V30 C56 46 46 56 32 60 C18 56 8 46 8 30 V14 Z" stroke="#6B0F1A" stroke-width="2"/>
+            <path d="M32 16 L32 44 M20 30 L44 30" stroke="#6B0F1A" stroke-width="2.5"/>
+          </svg>
+          <div style="font-size:23px; font-weight:700; color:#6B0F1A; letter-spacing:1.5px;">FAITH INTERNATIONAL SCHOOL, ITOBE</div>
+          <div style="font-size:11.5px; color:#555; margin-top:2px;">Opposite Deeper Life Bible Church, New Layout, Itobe, Ofu LGA, Kogi State</div>
+          <div style="font-style:italic; font-size:12.5px; color:#6B0F1A; margin-top:6px;">"In God We Trust"</div>
+          <div style="border-top:2px solid #6B0F1A; border-bottom:2px solid #6B0F1A; padding:6px 0; margin-top:12px;">
+            <div style="font-size:16px; font-weight:700; text-transform:uppercase; letter-spacing:2px;">Student Academic Report</div>
+            <div style="font-size:10.5px; color:#777; letter-spacing:0.5px; margin-top:2px;">WAEC-Style Grading System (A1 – F9)</div>
+          </div>
+        </div>
 
-      <table style="width:100%; border-collapse:collapse; font-size:13.5px;">
-        <thead>
-          <tr style="background:#6B0F1A; color:#fff;">
-            <th style="padding:8px 6px; text-align:left; border:1px solid #6B0F1A;">Subject</th>
-            <th style="padding:8px 6px; border:1px solid #6B0F1A;">CA1<br><span style="font-weight:400; font-size:11px;">/20</span></th>
-            <th style="padding:8px 6px; border:1px solid #6B0F1A;">CA2<br><span style="font-weight:400; font-size:11px;">/20</span></th>
-            <th style="padding:8px 6px; border:1px solid #6B0F1A;">Exam<br><span style="font-weight:400; font-size:11px;">/60</span></th>
-            <th style="padding:8px 6px; border:1px solid #6B0F1A;">Total<br><span style="font-weight:400; font-size:11px;">/100</span></th>
-            <th style="padding:8px 6px; border:1px solid #6B0F1A;">Grade</th>
-            <th style="padding:8px 6px; text-align:left; border:1px solid #6B0F1A;">Remark</th>
-          </tr>
-        </thead>
-        <tbody>${subjectRows}</tbody>
-      </table>
+        <table style="width:100%; border-collapse:collapse; margin-bottom:16px;">
+          <tbody>
+            <tr>${bioCell("Student Name", r.name)}${bioCell("Class", r.class)}</tr>
+            <tr>${bioCell("Term", r.term)}${bioCell("Session", r.session)}</tr>
+          </tbody>
+        </table>
 
-      <div style="margin-top:16px; display:flex; justify-content:space-between; align-items:center; border-top:2px solid #6B0F1A; padding-top:12px;">
-        <div style="font-size:15px; font-weight:700;">Overall Average: <span style="color:#6B0F1A;">${r.average}%</span></div>
-        ${r.position ? `<div style="font-size:15px; font-weight:700;">Class Position: <span style="color:#6B0F1A;">${r.position}</span></div>` : ""}
-      </div>
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+          <thead>
+            <tr style="background:#6B0F1A; color:#fff;">
+              <th style="border:1px solid #333; padding:8px 6px; width:6%;">S/N</th>
+              <th style="border:1px solid #333; padding:8px 6px; text-align:left;">Subject</th>
+              <th style="border:1px solid #333; padding:8px 6px;">CA1<br><span style="font-weight:400; font-size:10px;">/20</span></th>
+              <th style="border:1px solid #333; padding:8px 6px;">CA2<br><span style="font-weight:400; font-size:10px;">/20</span></th>
+              <th style="border:1px solid #333; padding:8px 6px;">Exam<br><span style="font-weight:400; font-size:10px;">/60</span></th>
+              <th style="border:1px solid #333; padding:8px 6px;">Total<br><span style="font-weight:400; font-size:10px;">/100</span></th>
+              <th style="border:1px solid #333; padding:8px 6px;">Grade</th>
+              <th style="border:1px solid #333; padding:8px 6px; text-align:left;">Remark</th>
+            </tr>
+          </thead>
+          <tbody>${subjectRows}</tbody>
+        </table>
 
-      <div style="margin-top:10px; font-size:10.5px; color:#999; border-top:2px solid #eee; padding:6px;">
-        WAEC Grading Scale — A1 (75–100) Excellent · B2 (70–74) Very Good · B3 (65–69) Good · C4–C6 (50–64) Credit · D7–E8 (40–49) Pass · F9 (0–39) Fail
+        <table style="width:100%; border-collapse:collapse; margin-top:12px; font-size:13px;">
+          <tbody>
+            <tr>
+              <td style="border:1px solid #333; padding:8px 10px; background:#f7f2ea;"><strong>Total Obtainable</strong></td>
+              <td style="border:1px solid #333; padding:8px 10px; text-align:center;">${totalObtainable}</td>
+              <td style="border:1px solid #333; padding:8px 10px; background:#f7f2ea;"><strong>Total Scored</strong></td>
+              <td style="border:1px solid #333; padding:8px 10px; text-align:center;">${totalScored}</td>
+            </tr>
+            <tr>
+              <td style="border:1px solid #333; padding:8px 10px; background:#f7f2ea;"><strong>Overall Average</strong></td>
+              <td style="border:1px solid #333; padding:8px 10px; text-align:center; font-weight:700; color:#6B0F1A;">${r.average}%</td>
+              <td style="border:1px solid #333; padding:8px 10px; background:#f7f2ea;"><strong>Class Position</strong></td>
+              <td style="border:1px solid #333; padding:8px 10px; text-align:center; font-weight:700; color:#6B0F1A;">${r.position || "—"}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div style="border:1px solid #333; margin-top:14px; padding:10px 12px; font-size:10.5px; background:#faf8f4;">
+          <strong>Grading Key:</strong> A1 = 75–100 (Excellent) &nbsp;·&nbsp; B2 = 70–74 (Very Good) &nbsp;·&nbsp; B3 = 65–69 (Good) &nbsp;·&nbsp;
+          C4–C6 = 50–64 (Credit) &nbsp;·&nbsp; D7–E8 = 40–49 (Pass) &nbsp;·&nbsp; F9 = 0–39 (Fail)
+        </div>
+
+        <table style="width:100%; border-collapse:collapse; margin-top:34px; position:relative;">
+          <tbody>
+            <tr>
+              <td style="width:50%; padding-right:20px;">
+                <div style="border-top:1.5px solid #333; padding-top:4px; font-size:11px; text-align:center;">Class Teacher's Signature &amp; Date</div>
+              </td>
+              <td style="width:50%; padding-left:20px; position:relative;">
+                <div style="border-top:1.5px solid #333; padding-top:4px; font-size:11px; text-align:center;">
+                  ${r.level === "primary" ? "Headmaster's" : "Principal's"} Signature &amp; Date
+                </div>
+                <svg width="92" height="92" viewBox="0 0 100 100" style="position:absolute; right:14px; bottom:26px; opacity:0.88; transform:rotate(-9deg);">
+                  <defs>
+                    <path id="stampCirclePath${r.uid}" d="M 50,50 m -37,0 a 37,37 0 1,1 74,0 a 37,37 0 1,1 -74,0" />
+                  </defs>
+                  <circle cx="50" cy="50" r="44" fill="none" stroke="#6B0F1A" stroke-width="2"/>
+                  <circle cx="50" cy="50" r="35" fill="none" stroke="#6B0F1A" stroke-width="1"/>
+                  <text font-size="6.3" fill="#6B0F1A" font-weight="700" letter-spacing="1">
+                    <textPath href="#stampCirclePath${r.uid}" startOffset="1">• FAITH INTERNATIONAL SCHOOL ITOBE •</textPath>
+                  </text>
+                  <text x="50" y="47" text-anchor="middle" font-size="8" fill="#6B0F1A" font-weight="700">OFFICIAL</text>
+                  <text x="50" y="57" text-anchor="middle" font-size="8" fill="#6B0F1A" font-weight="700">SEAL</text>
+                  <path d="M33 66 L50 73 L67 66" stroke="#6B0F1A" stroke-width="1.3" fill="none"/>
+                </svg>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div style="text-align:center; font-size:9.5px; color:#999; margin-top:20px;">
+          System-generated report — Faith International School, Itobe Portal · Printed ${new Date().toLocaleDateString()}
+        </div>
       </div>
     </div>
   `;
