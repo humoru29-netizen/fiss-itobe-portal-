@@ -535,6 +535,22 @@ window.onerror = function(message, source, lineno, colno, error){
   return false;
 };
 
+// Reliably prints #printArea's current content. A fixed setTimeout isn't
+// guaranteed to run after the browser has actually finished painting the
+// new content on every device — forcing a layout read, then waiting two
+// animation frames, guarantees at least one full paint cycle has
+// completed before the print dialog opens. This is what stops the print
+// from occasionally capturing the previous on-screen content instead of
+// the freshly built printArea content.
+function triggerPrint(){
+  document.getElementById("printArea").offsetHeight; // force synchronous layout flush
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      window.print();
+    });
+  });
+}
+
 // Safely embed a JSON value inside a double-quoted onclick="..." attribute.
 // JSON.stringify() alone produces double quotes that prematurely close the
 // attribute (this was the cause of "Submit for Approval" and similar
@@ -1865,10 +1881,7 @@ async function printFeeList(cls, term, session){
   `;
 
   document.body.classList.add("printing");
-  // Small delay lets mobile browsers finish committing the new printArea
-  // content before the print snapshot is taken — without this, some
-  // Android Chrome builds print whatever was on screen a moment earlier.
-  setTimeout(() => window.print(), 80);
+  triggerPrint();
 }
 
 window.addEventListener("afterprint", () => {
@@ -1963,10 +1976,7 @@ function printReceipt(r){
     <div style="margin-top:16px; font-size:12px; color:#555;">This receipt is computer-generated and valid without a signature.</div>
   `;
   document.body.classList.add("printing");
-  // Small delay lets mobile browsers finish committing the new printArea
-  // content before the print snapshot is taken — without this, some
-  // Android Chrome builds print whatever was on screen a moment earlier.
-  setTimeout(() => window.print(), 80);
+  triggerPrint();
 }
 
 function openReceiptLookup(){
@@ -2144,10 +2154,7 @@ function printCashierReport(){
     <div style="margin-top:12px; font-weight:700;">Total Collected: ₦${total}</div>
   `;
   document.body.classList.add("printing");
-  // Small delay lets mobile browsers finish committing the new printArea
-  // content before the print snapshot is taken — without this, some
-  // Android Chrome builds print whatever was on screen a moment earlier.
-  setTimeout(() => window.print(), 80);
+  triggerPrint();
 }
 
 /* ---------- STUDENT VIEW ---------- */
@@ -2584,10 +2591,7 @@ function printBulkResults(okRows, classAssigned){
     </table>
   `;
   document.body.classList.add("printing");
-  // Small delay lets mobile browsers finish committing the new printArea
-  // content before the print snapshot is taken — without this, some
-  // Android Chrome builds print whatever was on screen a moment earlier.
-  setTimeout(() => window.print(), 80);
+  triggerPrint();
 }
 
 /* ============================================================
@@ -2960,10 +2964,7 @@ function printCrossLevelReport(counts){
     </table>
   `;
   document.body.classList.add("printing");
-  // Small delay lets mobile browsers finish committing the new printArea
-  // content before the print snapshot is taken — without this, some
-  // Android Chrome builds print whatever was on screen a moment earlier.
-  setTimeout(() => window.print(), 80);
+  triggerPrint();
 }
 
 /* ============================================================
@@ -3079,10 +3080,7 @@ function printCAList(cls, subject, term, session){
     </table>
   `;
   document.body.classList.add("printing");
-  // Small delay lets mobile browsers finish committing the new printArea
-  // content before the print snapshot is taken — without this, some
-  // Android Chrome builds print whatever was on screen a moment earlier.
-  setTimeout(() => window.print(), 80);
+  triggerPrint();
 }
 
 /* ============================================================
@@ -3338,10 +3336,7 @@ function printReportCard(index){
   const printArea = document.getElementById("printArea");
   printArea.innerHTML = reportCardHTML(currentReportCards[index]);
   document.body.classList.add("printing");
-  // Small delay lets mobile browsers finish committing the new printArea
-  // content before the print snapshot is taken — without this, some
-  // Android Chrome builds print whatever was on screen a moment earlier.
-  setTimeout(() => window.print(), 80);
+  triggerPrint();
 }
 
 function printAllReportCards(){
@@ -3353,10 +3348,7 @@ function printAllReportCards(){
   }
   printArea.innerHTML = withResults.map(reportCardHTML).join("");
   document.body.classList.add("printing");
-  // Small delay lets mobile browsers finish committing the new printArea
-  // content before the print snapshot is taken — without this, some
-  // Android Chrome builds print whatever was on screen a moment earlier.
-  setTimeout(() => window.print(), 80);
+  triggerPrint();
 }
 
 /* ============================================================
@@ -3527,7 +3519,7 @@ function printMasterList(){
     </table>
   `;
   document.body.classList.add("printing");
-  setTimeout(() => window.print(), 80);
+  triggerPrint();
 }
 </script>
 </body>
