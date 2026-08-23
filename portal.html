@@ -1368,11 +1368,7 @@ function openResultsApproval(context){
     <div class="section-title" style="margin-top:12px;">Results Approval</div>
     <div class="form-group">
       <label>Class</label>
-      <select id="aClass" onchange="onApprovalClassChange()">${classList.map(c => `<option value="${c}">${c}</option>`).join("")}</select>
-    </div>
-    <div class="form-group">
-      <label>Subject</label>
-      <select id="aSubject"></select>
+      <select id="aClass">${classList.map(c => `<option value="${c}">${c}</option>`).join("")}</select>
     </div>
     <div class="form-group">
       <label>Term</label>
@@ -1380,27 +1376,21 @@ function openResultsApproval(context){
     </div>
     <div class="form-group">
       <label>Session</label>
-      <input type="text" id="aSession" placeholder="e.g. 2025/2026">
+      <input type="text" id="aSession" value="${defaultSession || ""}" placeholder="e.g. 2025/2026">
     </div>
-    <button class="btn-primary" onclick="loadResultsForApproval()">Load Results</button>
+    <button class="btn-primary" onclick="loadResultsForApproval()">Load Class Results</button>
     <div class="field-error" id="aError"></div>
     <div id="aResultsArea" style="margin-top:16px;"></div>
   `;
-  onApprovalClassChange();
 }
 
-function onApprovalClassChange(){
-  const cls = document.getElementById("aClass").value;
-  const subjSelect = document.getElementById("aSubject");
-  const subjects = PRIMARY_CLASSES.includes(cls) ? PRIMARY_SUBJECTS : SECONDARY_SUBJECTS;
-  subjSelect.innerHTML = subjects.map(s => `<option value="${s}">${s}</option>`).join("");
-}
-
+// Loads EVERY subject's results for the whole class at once — this is
+// the class-wide view Admin uses day-to-day, instead of picking one
+// subject at a time.
 async function loadResultsForApproval(){
   const errBox = document.getElementById("aError");
   errBox.textContent = "";
   const cls = document.getElementById("aClass").value;
-  const subject = document.getElementById("aSubject").value;
   const term = document.getElementById("aTerm").value;
   const session = document.getElementById("aSession").value.trim();
 
@@ -1411,6 +1401,136 @@ async function loadResultsForApproval(){
 
   const area = document.getElementById("aResultsArea");
   area.innerHTML = `<div class="placeholder-note">Loading results...</div>`;
+
+  try{
+    const snap = await db.collection("results")
+      .where("class","==",cls).where("term","==",term).where("session","==",session)
+      .get();
+
+    let results = [];
+    snap.forEach(doc => results.push({ id: doc.id, ...doc.data() }));
+
+    renderClassApprovalSummary(results, cls, term, session);
+  } catch(e){
+    area.innerHTML = `<div class="field-error">Error loading results: ${e.message}</div>`;
+  }
+}
+
+function renderClassApprovalSummary(results, cls, term, session){
+  const area = document.getElementById("aResultsArea");
+
+  if(results.length === 0){
+    area.innerHTML = `<div class="placeholder-note">No submitted results yet for ${cls} · ${term} · ${session}.</div>`;
+    return;
+  }
+
+  const submittedTotal = results.filter(r => r.status === "submitted").length;
+  const generatedTotal = results.filter(r => r.status === "generated").length;
+
+  // Per-subject breakdown so Admin can see progress across the whole class at a glance
+  const bySubject = {};
+  results.forEach(r => {
+    if(!bySubject[r.subject]) bySubject[r.subject] = { submitted: 0, generated: 0 };
+    bySubject[r.subject][r.status === "generated" ? "generated" : "submitted"]++;
+  });
+
+  const subjectRows = Object.keys(bySubject).sort().map(subj => `
+    <tr>
+      <td style="padding:6px 4px;">${subj}</td>
+      <td style="padding:6px 4px;">${bySubject[subj].submitted}</td>
+      <td style="padding:6px 4px;">${bySubject[subj].generated}</td>
+      <td style="padding:6px 4px;"><button class="btn-secondary" style="width:auto; margin:0; font-size:12px; padding:6px 10px;" onclick="openSubjectApprovalDetail('${cls}','${subj}','${term}',${js(session)})">Manage</button></td>
+    </tr>
+  `).join("");
+
+  area.innerHTML = `
+    <div style="display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap;">
+      <button class="btn-primary" style="width:auto; margin:0;" ${submittedTotal === 0 ? "disabled" : ""} onclick="generateAllSubjects('${cls}','${term}',${js(session)})">Generate All Subjects (${submittedTotal} pending)</button>
+      <button class="btn-primary" style="width:auto; margin:0;" ${generatedTotal === 0 ? "disabled" : ""} onclick="releaseAllSubjects('${cls}','${term}',${js(session)})">Release All Subjects</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead>
+          <tr style="text-align:left; border-bottom:2px solid var(--gray-line);">
+            <th style="padding:6px 4px;">Subject</th><th style="padding:6px 4px;">Awaiting</th><th style="padding:6px 4px;">Generated</th><th></th>
+          </tr>
+        </thead>
+        <tbody>${subjectRows}</tbody>
+      </table>
+    </div>
+    <div class="placeholder-note" style="margin-top:12px;">Tap "Manage" next to a subject to withhold or release individual students. Otherwise, the two buttons above handle the whole class in one tap.</div>
+  `;
+}
+
+async function generateAllSubjects(cls, term, session){
+  try{
+    const snap = await db.collection("results")
+      .where("class","==",cls).where("term","==",term).where("session","==",session)
+      .where("status","==","submitted")
+      .get();
+
+    const refs = [];
+    snap.forEach(doc => refs.push(doc.ref));
+
+    await Promise.all(refs.map(ref => ref.update({
+      status: "generated",
+      generatedBy: currentUser.uid,
+      generatedAt: new Date().toISOString()
+    })));
+
+    loadResultsForApproval();
+  } catch(e){
+    document.getElementById("aError").textContent = "Error generating results: " + e.message;
+  }
+}
+
+async function releaseAllSubjects(cls, term, session){
+  try{
+    const snap = await db.collection("results")
+      .where("class","==",cls).where("term","==",term).where("session","==",session)
+      .where("status","==","generated").where("withheld","==",false)
+      .get();
+
+    const refs = [];
+    snap.forEach(doc => refs.push(doc.ref));
+
+    await Promise.all(refs.map(ref => ref.update({
+      released: true, releasedBy: currentUser.uid, releasedAt: new Date().toISOString()
+    })));
+
+    loadResultsForApproval();
+  } catch(e){
+    document.getElementById("aError").textContent = "Error releasing results: " + e.message;
+  }
+}
+
+// Secondary/advanced screen — same per-subject, per-student withhold/release
+// control as before, reached via "Manage" next to a subject.
+function openSubjectApprovalDetail(cls, subject, term, session){
+  const main = document.getElementById("mainContent");
+  main.innerHTML = `
+    <button class="btn-secondary" onclick="loadResultsForApprovalReturn('${cls}','${term}',${js(session)})">&larr; Back to Class Summary</button>
+    <div class="section-title" style="margin-top:12px;">${cls} · ${subject} · ${term}</div>
+    <div class="field-error" id="aError"></div>
+    <div id="aResultsArea" style="margin-top:16px;"></div>
+  `;
+  loadSubjectApprovalDetail(cls, subject, term, session);
+}
+
+function loadResultsForApprovalReturn(cls, term, session){
+  document.getElementById("aClass") ? null : null; // no-op guard
+  openResultsApproval(resultsApprovalContext);
+  setTimeout(() => {
+    document.getElementById("aClass").value = cls;
+    document.getElementById("aTerm").value = term;
+    document.getElementById("aSession").value = session;
+    loadResultsForApproval();
+  }, 0);
+}
+
+async function loadSubjectApprovalDetail(cls, subject, term, session){
+  const area = document.getElementById("aResultsArea");
+  area.innerHTML = `<div class="placeholder-note">Loading...</div>`;
 
   try{
     const snap = await db.collection("results")
@@ -1453,9 +1573,9 @@ function renderApprovalResults(results, cls, subject, term, session){
       </div>
       <div style="display:flex; gap:6px; flex-shrink:0; align-items:center;">
         <label style="font-size:12px; display:flex; align-items:center; gap:4px;">
-          <input type="checkbox" ${r.withheld ? "checked" : ""} onchange="toggleWithhold('${r.id}', this.checked)"> Withhold
+          <input type="checkbox" ${r.withheld ? "checked" : ""} onchange="toggleWithhold('${r.id}', this.checked, '${cls}','${subject}','${term}',${js(session)})"> Withhold
         </label>
-        <button class="btn-secondary" onclick="toggleRelease('${r.id}', ${!r.released})">${r.released ? "Unrelease" : "Release"}</button>
+        <button class="btn-secondary" onclick="toggleRelease('${r.id}', ${!r.released}, '${cls}','${subject}','${term}',${js(session)})">${r.released ? "Unrelease" : "Release"}</button>
       </div>
     </div>
   `).join("");
@@ -1491,31 +1611,31 @@ async function generateResults(cls, subject, term, session){
       generatedAt: new Date().toISOString()
     })));
 
-    loadResultsForApproval();
+    loadSubjectApprovalDetail(cls, subject, term, session);
   } catch(e){
     document.getElementById("aError").textContent = "Error generating results: " + e.message;
   }
 }
 
-async function toggleWithhold(resultId, withheld){
+async function toggleWithhold(resultId, withheld, cls, subject, term, session){
   try{
     const updates = { withheld };
     if(withheld) updates.released = false;
     await db.collection("results").doc(resultId).update(updates);
-    loadResultsForApproval();
+    loadSubjectApprovalDetail(cls, subject, term, session);
   } catch(e){
     alert("Error updating: " + e.message);
   }
 }
 
-async function toggleRelease(resultId, releasedValue){
+async function toggleRelease(resultId, releasedValue, cls, subject, term, session){
   try{
     await db.collection("results").doc(resultId).update({
       released: releasedValue,
       releasedBy: currentUser.uid,
       releasedAt: new Date().toISOString()
     });
-    loadResultsForApproval();
+    loadSubjectApprovalDetail(cls, subject, term, session);
   } catch(e){
     alert("Error updating: " + e.message);
   }
@@ -1536,7 +1656,7 @@ async function releaseAllResults(cls, subject, term, session){
       released: true, releasedBy: currentUser.uid, releasedAt: new Date().toISOString()
     })));
 
-    loadResultsForApproval();
+    loadSubjectApprovalDetail(cls, subject, term, session);
   } catch(e){
     document.getElementById("aError").textContent = "Error releasing results: " + e.message;
   }
@@ -3055,28 +3175,66 @@ function renderReportCardList(cls, term, session){
 
 function reportCardHTML(r){
   const subjectRows = r.subjects.map(s => `
-    <tr><td>${s.subject}</td><td>${s.ca1}</td><td>${s.ca2}</td><td>${s.exam}</td><td>${s.total}</td><td>${s.grade}</td><td>${s.remark}</td></tr>
+    <tr>
+      <td>${s.subject}</td>
+      <td style="text-align:center;">${s.ca1}</td>
+      <td style="text-align:center;">${s.ca2}</td>
+      <td style="text-align:center;">${s.exam}</td>
+      <td style="text-align:center; font-weight:700;">${s.total}</td>
+      <td style="text-align:center; font-weight:700;">${s.grade}</td>
+      <td>${s.remark}</td>
+    </tr>
   `).join("");
 
   return `
-    <div style="page-break-after:always; padding-bottom:20px;">
-      <div style="text-align:center; margin-bottom:14px;">
-        <h2 style="margin:0;">Faith International School, Itobe</h2>
-        <div style="font-style:italic;">"In God We Trust"</div>
-        <div style="margin-top:8px; font-weight:700;">Student Report Card</div>
+    <div style="page-break-after:always; padding:24px; font-family: 'Segoe UI', Roboto, Arial, sans-serif; color:#111;">
+      <div style="text-align:center; border-bottom:4px double #6B0F1A; padding-bottom:14px; margin-bottom:16px;">
+        <svg width="56" height="56" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin:0 auto 6px;">
+          <path d="M32 4 L56 14 V30 C56 46 46 56 32 60 C18 56 8 46 8 30 V14 Z" fill="#6B0F1A" opacity="0.08"/>
+          <path d="M32 4 L56 14 V30 C56 46 46 56 32 60 C18 56 8 46 8 30 V14 Z" stroke="#6B0F1A" stroke-width="2"/>
+          <path d="M32 16 L32 44 M20 30 L44 30" stroke="#6B0F1A" stroke-width="2.5"/>
+        </svg>
+        <div style="font-size:22px; font-weight:800; color:#6B0F1A; letter-spacing:0.3px;">FAITH INTERNATIONAL SCHOOL, ITOBE</div>
+        <div style="font-style:italic; font-size:13px; color:#555; margin-top:2px;">"In God We Trust"</div>
+        <div style="font-size:15px; font-weight:700; margin-top:10px; text-transform:uppercase; letter-spacing:1px;">Student Report Card</div>
+        <div style="font-size:11.5px; color:#777; margin-top:2px;">WAEC-Style Grading (A1 – F9)</div>
       </div>
-      <table style="margin-bottom:10px;">
+
+      <table style="width:100%; border-collapse:collapse; margin-bottom:16px; font-size:14px;">
         <tbody>
-          <tr><td><strong>Student</strong></td><td>${r.name}</td><td><strong>Class</strong></td><td>${r.class}</td></tr>
-          <tr><td><strong>Term</strong></td><td>${r.term}</td><td><strong>Session</strong></td><td>${r.session}</td></tr>
+          <tr>
+            <td style="padding:4px 8px 4px 0; width:20%;"><strong>Student</strong></td><td style="padding:4px 0;">${r.name}</td>
+            <td style="padding:4px 8px 4px 24px; width:15%;"><strong>Class</strong></td><td style="padding:4px 0;">${r.class}</td>
+          </tr>
+          <tr>
+            <td style="padding:4px 8px 4px 0;"><strong>Term</strong></td><td style="padding:4px 0;">${r.term}</td>
+            <td style="padding:4px 8px 4px 24px;"><strong>Session</strong></td><td style="padding:4px 0;">${r.session}</td>
+          </tr>
         </tbody>
       </table>
-      <table>
-        <thead><tr><th>Subject</th><th>CA1/20</th><th>CA2/20</th><th>Exam/60</th><th>Total/100</th><th>Grade</th><th>Remark</th></tr></thead>
+
+      <table style="width:100%; border-collapse:collapse; font-size:13.5px;">
+        <thead>
+          <tr style="background:#6B0F1A; color:#fff;">
+            <th style="padding:8px 6px; text-align:left; border:1px solid #6B0F1A;">Subject</th>
+            <th style="padding:8px 6px; border:1px solid #6B0F1A;">CA1<br><span style="font-weight:400; font-size:11px;">/20</span></th>
+            <th style="padding:8px 6px; border:1px solid #6B0F1A;">CA2<br><span style="font-weight:400; font-size:11px;">/20</span></th>
+            <th style="padding:8px 6px; border:1px solid #6B0F1A;">Exam<br><span style="font-weight:400; font-size:11px;">/60</span></th>
+            <th style="padding:8px 6px; border:1px solid #6B0F1A;">Total<br><span style="font-weight:400; font-size:11px;">/100</span></th>
+            <th style="padding:8px 6px; border:1px solid #6B0F1A;">Grade</th>
+            <th style="padding:8px 6px; text-align:left; border:1px solid #6B0F1A;">Remark</th>
+          </tr>
+        </thead>
         <tbody>${subjectRows}</tbody>
       </table>
-      <div style="margin-top:12px; font-weight:700;">
-        Overall Average: ${r.average}${r.position ? " · Class Position: " + r.position : ""}
+
+      <div style="margin-top:16px; display:flex; justify-content:space-between; align-items:center; border-top:2px solid #6B0F1A; padding-top:12px;">
+        <div style="font-size:15px; font-weight:700;">Overall Average: <span style="color:#6B0F1A;">${r.average}%</span></div>
+        ${r.position ? `<div style="font-size:15px; font-weight:700;">Class Position: <span style="color:#6B0F1A;">${r.position}</span></div>` : ""}
+      </div>
+
+      <div style="margin-top:10px; font-size:10.5px; color:#999; border-top:2px solid #eee; padding:6px;">
+        WAEC Grading Scale — A1 (75–100) Excellent · B2 (70–74) Very Good · B3 (65–69) Good · C4–C6 (50–64) Credit · D7–E8 (40–49) Pass · F9 (0–39) Fail
       </div>
     </div>
   `;
