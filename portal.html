@@ -607,6 +607,8 @@ const SCHOOL_CREST_B64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAoHBwgHBgoICAgLCgoLDh
 let currentUser = null;   // Firebase auth user
 let defaultTerm = "";     // Populated by loadPortalSettings(); safe default until then
 let defaultSession = "";  // Populated by loadPortalSettings(); safe default until then
+let defaultTermEndsDate = "";       // Populated by loadPortalSettings(); prints on Report Cards
+let defaultNextTermBeginsDate = ""; // Populated by loadPortalSettings(); prints on Report Cards
 let currentProfile = null; // Firestore users/{uid} doc: {name, role, level}
 let generalAdminView = "overview"; // "primary" | "secondary" | "overview"
 let manageAccountsContext = "general"; // "general" | "primary" | "secondary"
@@ -664,10 +666,29 @@ async function loadUserProfile(uid){
       return;
     }
     currentProfile = doc.data(); // { name, role, level, email }
+    await loadPortalSettingsIntoMemory();
     enterPortal();
   } catch(e){
     document.getElementById("loginError").textContent = "Error loading profile: " + e.message;
     document.getElementById("loginBtn").textContent = "Log In";
+  }
+}
+
+// Runs once per login so every screen (CA List, Report Cards, Fees, etc.)
+// has the current Term/Session/dates pre-filled, instead of only working
+// after someone happens to open Portal Settings in that session.
+async function loadPortalSettingsIntoMemory(){
+  try{
+    const doc = await db.collection("settings").doc("current").get();
+    if(doc.exists){
+      const d = doc.data();
+      defaultTerm = d.term || "";
+      defaultSession = d.session || "";
+      defaultTermEndsDate = d.termEndsDate || "";
+      defaultNextTermBeginsDate = d.nextTermBeginsDate || "";
+    }
+  } catch(e){
+    // Non-critical — forms just fall back to blank defaults if this fails.
   }
 }
 
@@ -2858,31 +2879,30 @@ async function openPortalSettings(){
     <div class="placeholder-note">Loading...</div>
   `;
 
-  let term = defaultTerm, session = defaultSession;
-  try{
-    const doc = await db.collection("settings").doc("current").get();
-    if(doc.exists){
-      term = doc.data().term || term;
-      session = doc.data().session || session;
-    }
-  } catch(e){
-    // fall back to whatever's already in memory
-  }
+  await loadPortalSettingsIntoMemory(); // ensures the form shows the latest saved values
 
   main.innerHTML = `
     <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
     <div class="section-title" style="margin-top:12px;">Portal Settings</div>
     <div class="form-group">
       <label>Current Term</label>
-      <select id="setTerm">${TERMS.map(t => `<option value="${t}" ${t === term ? "selected" : ""}>${t}</option>`).join("")}</select>
+      <select id="setTerm">${TERMS.map(t => `<option value="${t}" ${t === defaultTerm ? "selected" : ""}>${t}</option>`).join("")}</select>
     </div>
     <div class="form-group">
       <label>Current Session</label>
-      <input type="text" id="setSession" value="${session || ""}" placeholder="e.g. 2025/2026">
+      <input type="text" id="setSession" value="${defaultSession || ""}" placeholder="e.g. 2025/2026">
+    </div>
+    <div class="form-group">
+      <label>This Term Ends</label>
+      <input type="date" id="setTermEnds" value="${defaultTermEndsDate}">
+    </div>
+    <div class="form-group">
+      <label>Next Term Begins</label>
+      <input type="date" id="setNextTermBegins" value="${defaultNextTermBeginsDate}">
     </div>
     <button class="btn-primary" onclick="savePortalSettings()">Save Settings</button>
     <div class="field-error" id="setError"></div>
-    <div class="placeholder-note" style="margin-top:14px;">This sets the default Term and Session shown across Results, Fees, and CA List forms. Staff can still override it per form when needed.</div>
+    <div class="placeholder-note" style="margin-top:14px;">Term/Session set the default shown across Results, Fees, and CA List forms. The two dates below print automatically on every Report Card.</div>
   `;
 }
 
@@ -2891,6 +2911,8 @@ async function savePortalSettings(){
   errBox.textContent = "";
   const term = document.getElementById("setTerm").value;
   const session = document.getElementById("setSession").value.trim();
+  const termEndsDate = document.getElementById("setTermEnds").value;
+  const nextTermBeginsDate = document.getElementById("setNextTermBegins").value;
 
   if(!session){
     errBox.textContent = "Please enter the session.";
@@ -2899,10 +2921,13 @@ async function savePortalSettings(){
 
   try{
     await db.collection("settings").doc("current").set({
-      term, session, updatedAt: new Date().toISOString(), updatedBy: currentUser.uid
+      term, session, termEndsDate, nextTermBeginsDate,
+      updatedAt: new Date().toISOString(), updatedBy: currentUser.uid
     }, { merge: true });
     defaultTerm = term;
     defaultSession = session;
+    defaultTermEndsDate = termEndsDate;
+    defaultNextTermBeginsDate = nextTermBeginsDate;
     alert("Portal settings saved.");
     renderDashboard();
   } catch(e){
@@ -3225,6 +3250,14 @@ function renderReportCardList(cls, term, session){
   `;
 }
 
+// Formats a YYYY-MM-DD date input value into a readable form like "23 Dec 2026"
+function formatReportDate(isoDate){
+  if(!isoDate) return "";
+  const d = new Date(isoDate + "T00:00:00");
+  if(isNaN(d)) return isoDate;
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
 function reportCardHTML(r){
   const subjectRows = r.subjects.map((s, i) => `
     <tr>
@@ -3267,7 +3300,6 @@ function reportCardHTML(r){
 
           <div style="border-top:2px solid #6B0F1A; border-bottom:2px solid #6B0F1A; padding:6px 0; margin-top:12px;">
             <div style="font-size:16px; font-weight:700; text-transform:uppercase; letter-spacing:2px;">Student Academic Report</div>
-            <div style="font-size:10.5px; color:#777; letter-spacing:0.5px; margin-top:2px;">WAEC-Style Grading System (A1 – F9)</div>
           </div>
         </div>
 
@@ -3275,6 +3307,12 @@ function reportCardHTML(r){
           <tbody>
             <tr>${bioCell("Student Name", r.name)}${bioCell("Class", r.class)}</tr>
             <tr>${bioCell("Term", r.term)}${bioCell("Session", r.session)}</tr>
+            ${(defaultTermEndsDate || defaultNextTermBeginsDate) ? `
+              <tr>
+                ${bioCell("This Term Ends", defaultTermEndsDate ? formatReportDate(defaultTermEndsDate) : "—")}
+                ${bioCell("Next Term Begins", defaultNextTermBeginsDate ? formatReportDate(defaultNextTermBeginsDate) : "—")}
+              </tr>
+            ` : ""}
           </tbody>
         </table>
 
