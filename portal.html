@@ -3251,8 +3251,11 @@ function reportCardHTML(r){
 
   return `
     <div style="page-break-after:always; position:relative; font-family: Georgia, 'Times New Roman', serif; color:#111;">
-      <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; opacity:0.07; z-index:0; pointer-events:none;">
-        <img src="data:image/jpeg;base64,${SCHOOL_CREST_B64}" style="width:380px; height:auto;">
+      <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; opacity:0.05; z-index:0; pointer-events:none;">
+        <svg width="340" height="340" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M32 4 L56 14 V30 C56 46 46 56 32 60 C18 56 8 46 8 30 V14 Z" fill="#6B0F1A"/>
+          <path d="M32 16 L32 44 M20 30 L44 30" stroke="#fff" stroke-width="2.5"/>
+        </svg>
       </div>
 
       <div style="position:relative; z-index:1; border:6px double #6B0F1A; padding:26px 30px;">
