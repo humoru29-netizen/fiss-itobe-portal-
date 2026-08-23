@@ -1861,7 +1861,10 @@ async function printFeeList(cls, term, session){
   `;
 
   document.body.classList.add("printing");
-  window.print();
+  // Small delay lets mobile browsers finish committing the new printArea
+  // content before the print snapshot is taken — without this, some
+  // Android Chrome builds print whatever was on screen a moment earlier.
+  setTimeout(() => window.print(), 80);
 }
 
 window.addEventListener("afterprint", () => {
@@ -1956,7 +1959,10 @@ function printReceipt(r){
     <div style="margin-top:16px; font-size:12px; color:#555;">This receipt is computer-generated and valid without a signature.</div>
   `;
   document.body.classList.add("printing");
-  window.print();
+  // Small delay lets mobile browsers finish committing the new printArea
+  // content before the print snapshot is taken — without this, some
+  // Android Chrome builds print whatever was on screen a moment earlier.
+  setTimeout(() => window.print(), 80);
 }
 
 function openReceiptLookup(){
@@ -2134,7 +2140,10 @@ function printCashierReport(){
     <div style="margin-top:12px; font-weight:700;">Total Collected: ₦${total}</div>
   `;
   document.body.classList.add("printing");
-  window.print();
+  // Small delay lets mobile browsers finish committing the new printArea
+  // content before the print snapshot is taken — without this, some
+  // Android Chrome builds print whatever was on screen a moment earlier.
+  setTimeout(() => window.print(), 80);
 }
 
 /* ---------- STUDENT VIEW ---------- */
@@ -2571,7 +2580,10 @@ function printBulkResults(okRows, classAssigned){
     </table>
   `;
   document.body.classList.add("printing");
-  window.print();
+  // Small delay lets mobile browsers finish committing the new printArea
+  // content before the print snapshot is taken — without this, some
+  // Android Chrome builds print whatever was on screen a moment earlier.
+  setTimeout(() => window.print(), 80);
 }
 
 /* ============================================================
@@ -2944,7 +2956,10 @@ function printCrossLevelReport(counts){
     </table>
   `;
   document.body.classList.add("printing");
-  window.print();
+  // Small delay lets mobile browsers finish committing the new printArea
+  // content before the print snapshot is taken — without this, some
+  // Android Chrome builds print whatever was on screen a moment earlier.
+  setTimeout(() => window.print(), 80);
 }
 
 /* ============================================================
@@ -3060,7 +3075,10 @@ function printCAList(cls, subject, term, session){
     </table>
   `;
   document.body.classList.add("printing");
-  window.print();
+  // Small delay lets mobile browsers finish committing the new printArea
+  // content before the print snapshot is taken — without this, some
+  // Android Chrome builds print whatever was on screen a moment earlier.
+  setTimeout(() => window.print(), 80);
 }
 
 /* ============================================================
@@ -3307,7 +3325,10 @@ function printReportCard(index){
   const printArea = document.getElementById("printArea");
   printArea.innerHTML = reportCardHTML(currentReportCards[index]);
   document.body.classList.add("printing");
-  window.print();
+  // Small delay lets mobile browsers finish committing the new printArea
+  // content before the print snapshot is taken — without this, some
+  // Android Chrome builds print whatever was on screen a moment earlier.
+  setTimeout(() => window.print(), 80);
 }
 
 function printAllReportCards(){
@@ -3319,7 +3340,10 @@ function printAllReportCards(){
   }
   printArea.innerHTML = withResults.map(reportCardHTML).join("");
   document.body.classList.add("printing");
-  window.print();
+  // Small delay lets mobile browsers finish committing the new printArea
+  // content before the print snapshot is taken — without this, some
+  // Android Chrome builds print whatever was on screen a moment earlier.
+  setTimeout(() => window.print(), 80);
 }
 </script>
 </body>
