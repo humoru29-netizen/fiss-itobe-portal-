@@ -40,6 +40,9 @@
     --gray-bg:#f4f2f0;
     --gray-line:#e2ddd8;
   }
+  body.level-bg-primary{ background:#eaf3fc; }
+  body.level-bg-secondary{ background:#eafaf0; }
+  body.level-bg-admin{ background:#fff9e6; }
   *{box-sizing:border-box; margin:0; padding:0;}
   body{
     font-family: 'Segoe UI', Roboto, Arial, sans-serif;
@@ -955,6 +958,13 @@ function setGeneralAdminView(view){
   renderDashboard();
 }
 
+function applyLevelBackground(levelKey){
+  document.body.classList.remove("level-bg-primary","level-bg-secondary","level-bg-admin");
+  if(levelKey === "primary") document.body.classList.add("level-bg-primary");
+  else if(levelKey === "secondary") document.body.classList.add("level-bg-secondary");
+  else document.body.classList.add("level-bg-admin");
+}
+
 function highlightViewButton(){
   document.getElementById("btnPrimaryView").classList.toggle("active", generalAdminView === "primary");
   document.getElementById("btnSecondaryView").classList.toggle("active", generalAdminView === "secondary");
@@ -967,18 +977,25 @@ function renderDashboard(){
   const role = currentProfile.role;
 
   if(role === "general_admin"){
+    applyLevelBackground(generalAdminView === "primary" ? "primary" : generalAdminView === "secondary" ? "secondary" : "admin");
     main.innerHTML = renderGeneralAdmin(generalAdminView);
   } else if(role === "primary_admin"){
+    applyLevelBackground("primary");
     main.innerHTML = renderLevelAdmin("Primary");
   } else if(role === "secondary_admin"){
+    applyLevelBackground("secondary");
     main.innerHTML = renderLevelAdmin("Secondary");
   } else if(role === "teacher"){
+    applyLevelBackground(currentProfile.level === "primary" ? "primary" : currentProfile.level === "secondary" ? "secondary" : "admin");
     main.innerHTML = renderTeacher();
   } else if(role === "student"){
+    applyLevelBackground(currentProfile.level === "primary" ? "primary" : currentProfile.level === "secondary" ? "secondary" : "admin");
     main.innerHTML = renderStudent();
   } else if(role === "cashier"){
+    applyLevelBackground("admin");
     main.innerHTML = renderCashier();
   } else {
+    applyLevelBackground("admin");
     main.innerHTML = `<p>Unknown role. Contact General Admin.</p>`;
   }
 }
@@ -1166,7 +1183,10 @@ function renderTeacher(){
         <div class="icon">📝</div>
         <div class="label">Enter Results</div>
       </div>
-      ${tile("📊","Class Performance")}
+      <div class="tile" onclick="openClassPerformance()">
+        <div class="icon">📊</div>
+        <div class="label">Class Performance</div>
+      </div>
       <div class="tile" onclick="openCAList('${currentProfile.level}')">
         <div class="icon">📋</div>
         <div class="label">CA List</div>
@@ -1176,6 +1196,134 @@ function renderTeacher(){
         <div class="label">Announcements</div>
       </div>
     </div>
+  `;
+}
+
+/* ============================================================
+   CLASS PERFORMANCE — teacher-facing analytics for one of their
+   own class/subject combinations: averages, grade spread, pass rate.
+   ============================================================ */
+function openClassPerformance(){
+  const main = document.getElementById("mainContent");
+  const myClasses = Array.isArray(currentProfile.class) ? currentProfile.class : (currentProfile.class ? [currentProfile.class] : []);
+  const mySubjects = currentProfile.subjects || [];
+
+  if(myClasses.length === 0 || mySubjects.length === 0){
+    main.innerHTML = `
+      <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
+      <div class="section-title" style="margin-top:12px;">Class Performance</div>
+      <div class="placeholder-note">No classes or subjects are assigned to your account yet. Contact your Admin.</div>
+    `;
+    return;
+  }
+
+  main.innerHTML = `
+    <button class="btn-secondary" onclick="renderDashboard()">&larr; Back to Dashboard</button>
+    <div class="section-title" style="margin-top:12px;">Class Performance</div>
+    <div class="form-group">
+      <label>Class</label>
+      <select id="cpClass">${myClasses.map(c => `<option value="${c}">${c}</option>`).join("")}</select>
+    </div>
+    <div class="form-group">
+      <label>Subject</label>
+      <select id="cpSubject">${mySubjects.map(s => `<option value="${s}">${s}</option>`).join("")}</select>
+    </div>
+    <div class="form-group">
+      <label>Term</label>
+      <select id="cpTerm">${TERMS.map(t => `<option value="${t}">${t}</option>`).join("")}</select>
+    </div>
+    <div class="form-group">
+      <label>Session</label>
+      <input type="text" id="cpSession" placeholder="e.g. 2025/2026">
+    </div>
+    <button class="btn-primary" onclick="loadClassPerformance()">View Performance</button>
+    <div class="field-error" id="cpError"></div>
+    <div id="cpResultsArea" style="margin-top:16px;"></div>
+  `;
+}
+
+async function loadClassPerformance(){
+  const errBox = document.getElementById("cpError");
+  errBox.textContent = "";
+  const cls = document.getElementById("cpClass").value;
+  const subject = document.getElementById("cpSubject").value;
+  const term = document.getElementById("cpTerm").value;
+  const session = document.getElementById("cpSession").value.trim();
+
+  if(!session){
+    errBox.textContent = "Please enter the session (e.g. 2025/2026).";
+    return;
+  }
+
+  const area = document.getElementById("cpResultsArea");
+  area.innerHTML = `<div class="placeholder-note">Loading results...</div>`;
+
+  try{
+    const snap = await db.collection("results")
+      .where("class","==",cls).where("subject","==",subject)
+      .where("term","==",term).where("session","==",session)
+      .get();
+
+    let results = [];
+    snap.forEach(doc => results.push(doc.data()));
+
+    renderClassPerformance(cls, subject, term, session, results);
+  } catch(e){
+    area.innerHTML = `<div class="field-error">Error loading results: ${e.message}</div>`;
+  }
+}
+
+function renderClassPerformance(cls, subject, term, session, results){
+  const area = document.getElementById("cpResultsArea");
+
+  if(results.length === 0){
+    area.innerHTML = `<div class="placeholder-note">No submitted results yet for ${esc(cls)} — ${esc(subject)}, ${esc(term)} ${esc(session)}.</div>`;
+    return;
+  }
+
+  const totals = results.map(r => Number(r.total) || 0);
+  const count = totals.length;
+  const sum = totals.reduce((a,b) => a+b, 0);
+  const avg = sum / count;
+  const highest = Math.max(...totals);
+  const lowest = Math.min(...totals);
+  const passCount = results.filter(r => (Number(r.total) || 0) >= 40).length;
+  const passRate = (passCount / count) * 100;
+
+  const gradeCounts = {};
+  results.forEach(r => {
+    const g = r.grade || "—";
+    gradeCounts[g] = (gradeCounts[g] || 0) + 1;
+  });
+  const gradeOrder = ["A1","B2","B3","C4","C5","C6","D7","E8","F9"];
+  const gradeRows = gradeOrder
+    .filter(g => gradeCounts[g])
+    .map(g => `
+      <div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--gray-line); font-size:13px;">
+        <span>${g}</span><span>${gradeCounts[g]} student${gradeCounts[g] === 1 ? "" : "s"}</span>
+      </div>
+    `).join("");
+
+  const sorted = [...results].sort((a,b) => (Number(b.total)||0) - (Number(a.total)||0));
+  const studentRows = sorted.map((r, i) => `
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--gray-line); font-size:13px;">
+      <span>${i+1}. ${esc(r.studentName || "(no name)")}</span>
+      <span style="font-weight:700;">${esc(r.total)} (${esc(r.grade || "—")})</span>
+    </div>
+  `).join("");
+
+  area.innerHTML = `
+    <div class="stat-row">
+      <div class="stat-box"><div class="num">${count}</div><div class="lbl">Students</div></div>
+      <div class="stat-box"><div class="num">${avg.toFixed(1)}</div><div class="lbl">Class Average</div></div>
+      <div class="stat-box"><div class="num">${highest}</div><div class="lbl">Highest</div></div>
+      <div class="stat-box"><div class="num">${lowest}</div><div class="lbl">Lowest</div></div>
+      <div class="stat-box"><div class="num">${passRate.toFixed(0)}%</div><div class="lbl">Pass Rate</div></div>
+    </div>
+    <div class="section-title" style="font-size:14px; margin-top:20px;">Grade Distribution</div>
+    ${gradeRows}
+    <div class="section-title" style="font-size:14px; margin-top:20px;">Student Scores (Highest to Lowest)</div>
+    ${studentRows}
   `;
 }
 
