@@ -447,6 +447,9 @@
         <span>•</span>
         <button type="button" onclick="openSignup()">Create an account</button>
       </div>
+      <div class="login-links" style="margin-top:6px;">
+        <button type="button" onclick="openCheckResult()">🎓 Check My Result (Students — no login)</button>
+      </div>
     </div>
     <div class="login-footer">Nursery · Primary · Secondary</div>
   </div>
@@ -501,6 +504,24 @@
       <div class="field-success hidden" id="forgotSuccess"></div>
       <button class="btn-primary" id="forgotBtn" onclick="submitForgotPassword()">Send Reset Link</button>
       <button class="btn-secondary" onclick="closeForgotPassword()">Back to Sign In</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= CHECK MY RESULT (public, no login) ================= -->
+<div id="checkResultModal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div><h3>Check My Result</h3></div>
+      <button class="modal-close" onclick="closeCheckResult()">&times;</button>
+    </div>
+    <div class="modal-body" id="checkResultBody">
+      <div class="form-group"><label>Admission Number</label><input type="text" id="crAdmissionNo" placeholder="e.g. FISS/2026/1234"></div>
+      <div class="form-group"><label>Result PIN</label><input type="text" id="crPin" placeholder="6-digit PIN"></div>
+      <div class="signup-note">Ask your school for your Admission Number and Result PIN — printed for you when results are released.</div>
+      <div class="field-error" id="crError"></div>
+      <button class="btn-primary" id="crBtn" onclick="submitCheckResult()">Check Result</button>
+      <button class="btn-secondary" onclick="closeCheckResult()">Back to Sign In</button>
     </div>
   </div>
 </div>
@@ -829,6 +850,82 @@ async function submitForgotPassword(){
     btn.disabled = false;
     btn.textContent = "Send Reset Link";
   }
+}
+
+/* ---------------- CHECK MY RESULT (public, no login) ---------------- */
+function openCheckResult(){
+  document.getElementById("checkResultModal").classList.remove("hidden");
+}
+function closeCheckResult(){
+  document.getElementById("checkResultModal").classList.add("hidden");
+  // Reset back to the entry form for next time this is opened
+  document.getElementById("checkResultBody").innerHTML = `
+    <div class="form-group"><label>Admission Number</label><input type="text" id="crAdmissionNo" placeholder="e.g. FISS/2026/1234"></div>
+    <div class="form-group"><label>Result PIN</label><input type="text" id="crPin" placeholder="6-digit PIN"></div>
+    <div class="signup-note">Ask your school for your Admission Number and Result PIN — printed for you when results are released.</div>
+    <div class="field-error" id="crError"></div>
+    <button class="btn-primary" id="crBtn" onclick="submitCheckResult()">Check Result</button>
+    <button class="btn-secondary" onclick="closeCheckResult()">Back to Sign In</button>
+  `;
+}
+async function submitCheckResult(){
+  const admissionNo = document.getElementById("crAdmissionNo").value.trim();
+  const pin = document.getElementById("crPin").value.trim();
+  const errBox = document.getElementById("crError");
+  errBox.textContent = "";
+
+  if(!admissionNo || !pin){
+    errBox.textContent = "Please enter both your Admission Number and PIN.";
+    return;
+  }
+
+  const btn = document.getElementById("crBtn");
+  btn.disabled = true;
+  btn.textContent = "Checking...";
+
+  try{
+    const lookupId = `${admissionNo}_${pin}`;
+    const doc = await db.collection("resultLookup").doc(lookupId).get();
+    if(!doc.exists){
+      errBox.textContent = "No result found for that Admission Number and PIN. Please check and try again.";
+      btn.disabled = false;
+      btn.textContent = "Check Result";
+      return;
+    }
+    renderCheckedResult(doc.data());
+  } catch(e){
+    errBox.textContent = "Error: " + e.message;
+    btn.disabled = false;
+    btn.textContent = "Check Result";
+  }
+}
+function renderCheckedResult(data){
+  const body = document.getElementById("checkResultBody");
+  const subjectRows = (data.subjects || []).map(s => `
+    <tr>
+      <td style="padding:5px 4px;">${esc(s.subject)}</td>
+      <td style="padding:5px 4px;">${esc(s.ca1)}</td>
+      <td style="padding:5px 4px;">${esc(s.ca2)}</td>
+      <td style="padding:5px 4px;">${esc(s.exam)}</td>
+      <td style="padding:5px 4px; font-weight:700;">${esc(s.total)}</td>
+      <td style="padding:5px 4px;">${esc(s.grade)}</td>
+    </tr>
+  `).join("");
+
+  body.innerHTML = `
+    <div style="font-weight:700; font-size:16px;">${esc(data.studentName)}</div>
+    <div style="font-size:13px; color:#666; margin-top:2px;">${esc(data.admissionNo)} · ${esc(data.class)} · ${esc(data.term)} ${esc(data.session)}</div>
+    <div style="overflow-x:auto; margin-top:14px;">
+      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead><tr style="text-align:left; border-bottom:2px solid var(--gray-line);">
+          <th style="padding:5px 4px;">Subject</th><th style="padding:5px 4px;">CA1</th><th style="padding:5px 4px;">CA2</th><th style="padding:5px 4px;">Exam</th><th style="padding:5px 4px;">Total</th><th style="padding:5px 4px;">Grade</th>
+        </tr></thead>
+        <tbody>${subjectRows}</tbody>
+      </table>
+    </div>
+    <div class="stat-box" style="margin-top:14px;"><div class="num">${esc(data.average)}</div><div class="lbl">Term Average</div></div>
+    <button class="btn-secondary" style="margin-top:14px;" onclick="closeCheckResult()">Back to Sign In</button>
+  `;
 }
 
 function handleLogin(){
@@ -1566,7 +1663,7 @@ function renderManageAccountsList(users, activeClassFilter){
       <div style="min-width:0;">
         <div style="font-weight:600;">${u.name || "(no name)"}</div>
         <div style="font-size:12px; color:#666; overflow-wrap:anywhere;">
-          ${u.email || ""}
+          ${u.role === "student" ? (u.admissionNo || "") : (u.email || "")}
           ${u.class ? " · " + (Array.isArray(u.class) ? u.class.join(", ") : u.class) : ""}
           ${u.subjects ? " · " + u.subjects.join(", ") : ""}
         </div>
@@ -2000,6 +2097,7 @@ function renderClassApprovalSummary(results, cls, term, session){
     <div style="display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap;">
       <button class="btn-primary" style="width:auto; margin:0;" ${submittedTotal === 0 ? "disabled" : ""} onclick="generateAllSubjects('${cls}','${term}',${js(session)})">Generate All Subjects (${submittedTotal} pending)</button>
       <button class="btn-primary" style="width:auto; margin:0;" ${generatedTotal === 0 ? "disabled" : ""} onclick="releaseAllSubjects('${cls}','${term}',${js(session)})">Release All Subjects</button>
+      <button class="btn-secondary" style="width:auto; margin:0;" onclick="generateResultPins('${cls}','${term}',${js(session)})">🔑 Generate &amp; Print Result PINs</button>
     </div>
     <div style="overflow-x:auto;">
       <table style="width:100%; border-collapse:collapse; font-size:13px;">
@@ -2055,6 +2153,105 @@ async function releaseAllSubjects(cls, term, session){
   } catch(e){
     document.getElementById("aError").textContent = "Error releasing results: " + e.message;
   }
+}
+
+/* ============================================================
+   RESULT PINS — one PIN per student per term/session (not per
+   subject). Students use Admission No + this PIN on the public
+   "Check My Result" screen (no login). A PIN only ever unlocks
+   its own student's record: the lookup document ID is a
+   combination of the admission number and the PIN itself, so
+   one student's PIN cannot be used to view another student's
+   results even if guessed.
+   ============================================================ */
+async function generateResultPins(cls, term, session){
+  const area = document.getElementById("aResultsArea");
+  const originalHTML = area.innerHTML;
+  area.innerHTML = `<div class="placeholder-note">Generating PINs for ${esc(cls)}...</div>` + originalHTML;
+
+  try{
+    const studentsSnap = await db.collection("users")
+      .where("role","==","student").where("class","==",cls).get();
+    let students = [];
+    studentsSnap.forEach(doc => students.push({ uid: doc.id, ...doc.data() }));
+
+    if(students.length === 0){
+      alert("No students found in " + cls + ".");
+      loadResultsForApproval();
+      return;
+    }
+
+    const resultsSnap = await db.collection("results")
+      .where("class","==",cls).where("term","==",term).where("session","==",session)
+      .get();
+    const byStudent = {};
+    resultsSnap.forEach(doc => {
+      const r = doc.data();
+      if(!byStudent[r.studentUid]) byStudent[r.studentUid] = [];
+      byStudent[r.studentUid].push(r);
+    });
+
+    const slips = [];
+    for(const s of students){
+      if(!s.admissionNo){ continue; } // skip legacy students without an admission number
+      const subjectResults = (byStudent[s.uid] || []).map(r => ({
+        subject: r.subject, ca1: r.ca1, ca2: r.ca2, exam: r.exam,
+        total: r.total, grade: r.grade
+      }));
+      if(subjectResults.length === 0) continue; // nothing to check yet
+
+      const totals = subjectResults.map(r => Number(r.total) || 0);
+      const average = totals.reduce((a,b)=>a+b,0) / totals.length;
+
+      const pin = generatePIN();
+      const lookupId = `${s.admissionNo}_${pin}`;
+
+      await db.collection("resultLookup").doc(lookupId).set({
+        studentName: s.name, admissionNo: s.admissionNo, class: cls, level: s.level,
+        term, session, subjects: subjectResults, average: average.toFixed(1),
+        generatedAt: new Date().toISOString(), generatedBy: currentUser.uid
+      });
+
+      await db.collection("users").doc(s.uid).update({
+        [`pins.${term}_${session}`]: pin
+      });
+
+      slips.push({ name: s.name, admissionNo: s.admissionNo, pin });
+    }
+
+    if(slips.length === 0){
+      alert("No students with submitted results found for " + term + " " + session + ".");
+      loadResultsForApproval();
+      return;
+    }
+
+    printResultPinSlips(slips, cls, term, session);
+    loadResultsForApproval();
+  } catch(e){
+    alert("Error generating PINs: " + e.message);
+    loadResultsForApproval();
+  }
+}
+
+function printResultPinSlips(slips, cls, term, session){
+  const cards = slips.map(s => `
+    <div style="border:2px solid #000; border-radius:8px; padding:14px; margin-bottom:12px; page-break-inside:avoid;">
+      <div style="font-weight:700; font-size:15px;">${esc(s.name)}</div>
+      <div style="font-size:13px; margin-top:4px;">Admission No: <strong>${esc(s.admissionNo)}</strong></div>
+      <div style="font-size:13px;">Class: ${esc(cls)} &nbsp;·&nbsp; ${esc(term)} &nbsp;·&nbsp; ${esc(session)}</div>
+      <div style="font-size:20px; font-weight:800; letter-spacing:3px; margin-top:10px; background:#f4f2f0; padding:10px; text-align:center; border-radius:6px;">PIN: ${esc(s.pin)}</div>
+      <div style="font-size:11px; color:#555; margin-top:6px;">Visit the school portal → "Check My Result" and enter your Admission Number and this PIN.</div>
+    </div>
+  `).join("");
+
+  openPrintWindow(`
+    <div style="text-align:center; margin-bottom:14px;">
+      <h2 style="margin:0;">Faith International School, Itobe</h2>
+      <div style="font-style:italic;">"In God We Trust"</div>
+      <div style="margin-top:8px; font-weight:600;">Result Checking PINs — ${cls}, ${term} ${session}</div>
+    </div>
+    ${cards}
+  `);
 }
 
 // Secondary/advanced screen — same per-subject, per-student withhold/release
@@ -2781,16 +2978,15 @@ function onRoleChange(context){
         </select>
       </div>
       <div class="form-group">
-        <small style="color:#666;">Assigning a class determines whether this login routes to Primary or Secondary automatically.</small>
+        <label>Admission Number</label>
+        <input type="text" id="accAdmissionNo" value="${generateAdmissionNo()}">
+        <button type="button" class="btn-secondary" onclick="document.getElementById('accAdmissionNo').value = generateAdmissionNo()">Regenerate</button>
       </div>
-    `;
-    contactHTML = `
       <div class="form-group">
-        <label>Username (auto-generated — you can edit)</label>
-        <input type="text" id="accEmail" readonly>
-        <button type="button" class="btn-secondary" onclick="regenerateStudentUsername()">Regenerate Username</button>
+        <small style="color:#666;">Students do not get a login account. Give the student their Admission Number — they'll use it with a result PIN (printed when results are released) to check results.</small>
       </div>
     `;
+    contactHTML = "";
   } else if(role === "teacher"){
     assignmentHTML = `
       <div class="form-group">
@@ -2842,17 +3038,13 @@ function onRoleChange(context){
   }
 
   assignmentArea.innerHTML = assignmentHTML;
-  contactArea.innerHTML = contactHTML + `
+  contactArea.innerHTML = contactHTML + (role === "student" ? "" : `
     <div class="form-group">
       <label>Password (auto-generated — you can edit)</label>
       <input type="text" id="accPassword" value="${generatePassword()}">
       <button type="button" class="btn-secondary" onclick="document.getElementById('accPassword').value = generatePassword()">Regenerate Password</button>
     </div>
-  `;
-
-  if(role === "student"){
-    regenerateStudentUsername();
-  }
+  `);
 }
 
 function validateTeacherClasses(){
@@ -2876,14 +3068,14 @@ function generatePassword(){
   return pass;
 }
 
-function regenerateStudentUsername(){
-  const nameField = document.getElementById("accName");
-  const classField = document.getElementById("accClass");
-  const emailField = document.getElementById("accEmail");
-  const name = (nameField.value || "student").trim().toLowerCase().replace(/[^a-z]/g, "");
-  const initials = name.slice(0, 6) || "student";
-  const rand = Math.floor(100 + Math.random() * 900);
-  emailField.value = `${initials}${rand}@fissportal.local`;
+function generateAdmissionNo(){
+  const year = new Date().getFullYear();
+  const rand = Math.floor(1000 + Math.random() * 9000);
+  return `FISS/${year}/${rand}`;
+}
+
+function generatePIN(){
+  return String(Math.floor(100000 + Math.random() * 900000)); // 6-digit PIN
 }
 
 async function submitCreateAccount(context){
@@ -2892,6 +3084,34 @@ async function submitCreateAccount(context){
 
   const name = document.getElementById("accName").value.trim();
   const role = document.getElementById("accRole").value;
+
+  if(role === "student"){
+    const classField = document.getElementById("accClass");
+    const classAssigned = classField.value;
+    const admissionNo = document.getElementById("accAdmissionNo").value.trim();
+    if(!name || !classAssigned || !admissionNo){
+      errBox.textContent = "Please fill in all fields.";
+      return;
+    }
+    const level = PRIMARY_CLASSES.includes(classAssigned) ? "primary" : "secondary";
+    try{
+      const existing = await db.collection("users").where("admissionNo","==",admissionNo).get();
+      if(!existing.empty){
+        errBox.textContent = "That admission number is already in use.";
+        return;
+      }
+      await db.collection("users").add({
+        name, role: "student", level, class: classAssigned, admissionNo,
+        createdAt: new Date().toISOString(), createdBy: currentUser.uid
+      });
+      showCredentials({ name, role: "student", level, classAssigned, admissionNo });
+      closeAccountModal();
+    } catch(e){
+      errBox.textContent = "Error: " + e.message;
+    }
+    return;
+  }
+
   const email = document.getElementById("accEmail") ? document.getElementById("accEmail").value.trim() : "";
   const password = document.getElementById("accPassword") ? document.getElementById("accPassword").value : "";
 
@@ -2905,15 +3125,7 @@ async function submitCreateAccount(context){
   let classAssigned = null;
   let subjectsAssigned = null;
 
-  if(role === "student"){
-    const classField = document.getElementById("accClass");
-    classAssigned = classField.value;
-    if(!classAssigned){
-      errBox.textContent = "Please select a class.";
-      return;
-    }
-    level = PRIMARY_CLASSES.includes(classAssigned) ? "primary" : "secondary";
-  } else if(role === "teacher"){
+  if(role === "teacher"){
     const grid = document.getElementById("teacherClassGrid");
     const checked = [...grid.querySelectorAll("input:checked")];
     if(checked.length === 0){
@@ -2976,6 +3188,16 @@ async function submitCreateAccount(context){
 function showCredentials(data){
   const panel = document.getElementById("credentialsPanel");
   const body = document.getElementById("credentialsBody");
+  if(data.role === "student"){
+    body.innerHTML = `
+      <div class="cred-row"><span class="k">Name</span><span class="v">${esc(data.name)}</span></div>
+      <div class="cred-row"><span class="k">Admission No.</span><span class="v">${esc(data.admissionNo)}</span></div>
+      <div class="cred-row"><span class="k">Class</span><span class="v">${esc(data.classAssigned)}</span></div>
+      <div class="cred-warning">This student has no login account. Results become checkable once released, using this Admission Number plus a PIN printed at release time.</div>
+    `;
+    panel.classList.remove("hidden");
+    return;
+  }
   body.innerHTML = `
     <div class="cred-row"><span class="k">Name</span><span class="v">${data.name}</span></div>
     <div class="cred-row"><span class="k">${data.role === "student" ? "Username" : "Email"}</span><span class="v">${data.email}</span></div>
@@ -3019,24 +3241,12 @@ function openBulkAddStudents(){
       <textarea id="bulkNames" rows="10" style="width:100%; padding:10px 12px; border:1px solid var(--gray-line); border-radius:8px; font-size:14px;" placeholder="Musa Ibrahim
 Amaka Obi
 Chidi Eze"></textarea>
-      <small style="color:#666;">Each line becomes one student account. Usernames and passwords are generated automatically, same as single account creation.</small>
+      <small style="color:#666;">Each line becomes one student record with an auto-generated Admission Number. Students don't get login accounts — they'll check results later using their Admission Number plus a PIN printed at release time.</small>
     </div>
-    <button class="btn-primary" onclick="submitBulkAddStudents()">Create Accounts</button>
+    <button class="btn-primary" onclick="submitBulkAddStudents()">Create Records</button>
     <div class="field-error" id="bulkError"></div>
     <div id="bulkProgressArea" style="margin-top:16px;"></div>
   `;
-}
-
-function bulkGenerateUsername(name, taken){
-  const clean = (name || "student").trim().toLowerCase().replace(/[^a-z]/g, "");
-  const initials = clean.slice(0, 6) || "student";
-  let username;
-  do {
-    const rand = Math.floor(100 + Math.random() * 900);
-    username = `${initials}${rand}@fissportal.local`;
-  } while(taken.has(username));
-  taken.add(username);
-  return username;
 }
 
 async function submitBulkAddStudents(){
@@ -3058,32 +3268,28 @@ async function submitBulkAddStudents(){
   }
 
   const level = PRIMARY_CLASSES.includes(classAssigned) ? "primary" : "secondary";
-  const usedUsernames = new Set();
-  const results = []; // { name, username, password, status: "ok"|"error", message? }
+  const usedAdmissionNos = new Set();
+  const results = []; // { name, admissionNo, status: "ok"|"error", message? }
 
-  progressArea.innerHTML = `<div class="placeholder-note">Creating accounts: 0 / ${rawNames.length}...</div>`;
+  progressArea.innerHTML = `<div class="placeholder-note">Creating records: 0 / ${rawNames.length}...</div>`;
 
   for(let i = 0; i < rawNames.length; i++){
     const name = rawNames[i];
-    const username = bulkGenerateUsername(name, usedUsernames);
-    const password = generatePassword();
+    let admissionNo;
+    do { admissionNo = generateAdmissionNo(); } while(usedAdmissionNos.has(admissionNo));
+    usedAdmissionNos.add(admissionNo);
 
     try{
-      const cred = await secondaryAuth.createUserWithEmailAndPassword(username, password);
-      const uid = cred.user.uid;
-      await secondaryAuth.signOut();
-
-      await db.collection("users").doc(uid).set({
-        name, email: username, role: "student", level, class: classAssigned,
+      await db.collection("users").add({
+        name, role: "student", level, class: classAssigned, admissionNo,
         createdAt: new Date().toISOString(), createdBy: currentUser.uid
       });
-
-      results.push({ name, username, password, status: "ok" });
+      results.push({ name, admissionNo, status: "ok" });
     } catch(e){
-      results.push({ name, username, password, status: "error", message: e.message });
+      results.push({ name, admissionNo, status: "error", message: e.message });
     }
 
-    progressArea.innerHTML = `<div class="placeholder-note">Creating accounts: ${i + 1} / ${rawNames.length}...</div>`;
+    progressArea.innerHTML = `<div class="placeholder-note">Creating records: ${i + 1} / ${rawNames.length}...</div>`;
   }
 
   renderBulkResults(results, classAssigned);
@@ -3095,18 +3301,18 @@ function renderBulkResults(results, classAssigned){
   const errorRows = results.filter(r => r.status === "error");
 
   const rowHTML = (r) => `
-    <div class="cred-row"><span class="k">${r.name}</span><span class="v">${r.username} · ${r.password}</span></div>
+    <div class="cred-row"><span class="k">${esc(r.name)}</span><span class="v">${esc(r.admissionNo)}</span></div>
   `;
 
   progressArea.innerHTML = `
     <div class="section-title" style="margin-top:0;">Done — ${okRows.length} of ${results.length} created</div>
     ${errorRows.length > 0 ? `
       <div class="field-error" style="margin-bottom:10px;">
-        ${errorRows.length} failed: ${errorRows.map(r => `${r.name} (${r.message})`).join("; ")}
+        ${errorRows.length} failed: ${errorRows.map(r => `${esc(r.name)} (${esc(r.message)})`).join("; ")}
       </div>
     ` : ""}
     ${okRows.length > 0 ? `
-      <div class="cred-warning">Save or share these now — passwords cannot be retrieved again later.</div>
+      <div class="cred-warning">Admission Numbers — save or print this list for your records.</div>
       <div style="margin-top:10px;">${okRows.map(rowHTML).join("")}</div>
       <button class="btn-secondary" onclick='printBulkResults(${JSON.stringify(okRows)}, ${JSON.stringify(classAssigned)})'>🖨️ Print List</button>
     ` : ""}
@@ -3115,17 +3321,17 @@ function renderBulkResults(results, classAssigned){
 }
 
 function printBulkResults(okRows, classAssigned){
-  const rows = okRows.map(r => `<tr><td>${r.name}</td><td>${r.username}</td><td>${r.password}</td></tr>`).join("");
+  const rows = okRows.map(r => `<tr><td>${r.name}</td><td>${r.admissionNo}</td></tr>`).join("");
 
   openPrintWindow(`
     <div style="text-align:center; margin-bottom:14px;">
       <h2 style="margin:0;">Faith International School, Itobe</h2>
       <div style="font-style:italic;">"In God We Trust"</div>
-      <div style="margin-top:8px; font-weight:600;">New Student Logins — ${classAssigned}</div>
+      <div style="margin-top:8px; font-weight:600;">New Student Records — ${classAssigned}</div>
       <div style="font-size:12px; color:#555;">Generated: ${new Date().toLocaleDateString()}</div>
     </div>
     <table>
-      <thead><tr><th>Name</th><th>Username</th><th>Password</th></tr></thead>
+      <thead><tr><th>Name</th><th>Admission No.</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `);
