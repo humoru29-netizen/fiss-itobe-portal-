@@ -1279,6 +1279,21 @@ async function submitAdmissionApplication(){
 
 function renderCheckedResult(data){
   const body = document.getElementById("checkResultBody");
+
+  // A PIN can now be issued to a student before their results exist
+  // (see issueClassPins()) — such records are stored with released:false
+  // and no subjects. Show a clear "not yet released" message instead of
+  // an empty results table in that case.
+  if(data.released === false){
+    body.innerHTML = `
+      <div style="font-weight:700; font-size:16px;">${esc(data.studentName)}</div>
+      <div style="font-size:13px; color:#666; margin-top:2px;">${esc(data.admissionNo)} · ${esc(data.class)} · ${esc(data.term)} ${esc(data.session)}</div>
+      <div class="placeholder-note" style="margin-top:14px;">Your PIN is valid, but results have not been released yet for this term. Please check back later.</div>
+      <button class="btn-secondary" style="margin-top:10px;" onclick="closeCheckResult()">Back to Sign In</button>
+    `;
+    return;
+  }
+
   const subjectRows = (data.subjects || []).map(s => `
     <tr>
       <td style="padding:5px 4px;">${esc(s.subject)}</td>
@@ -2561,7 +2576,9 @@ function renderClassApprovalSummary(results, cls, term, session){
     <div style="display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap;">
       <button class="btn-primary" style="width:auto; margin:0;" ${submittedTotal === 0 ? "disabled" : ""} onclick="generateAllSubjects('${cls}','${term}',${js(session)})">Generate All Subjects (${submittedTotal} pending)</button>
       <button class="btn-primary" style="width:auto; margin:0;" ${generatedTotal === 0 ? "disabled" : ""} onclick="releaseAllSubjects('${cls}','${term}',${js(session)})">Release All Subjects</button>
+      <button class="btn-secondary" style="width:auto; margin:0;" onclick="issueClassPins('${cls}','${term}',${js(session)})">🎫 Issue PINs to Whole Class</button>
       <button class="btn-secondary" style="width:auto; margin:0;" onclick="generateResultPins('${cls}','${term}',${js(session)})">🔑 Generate &amp; Print Result PINs</button>
+      <button class="btn-secondary" style="width:auto; margin:0;" onclick="issueSinglePin('${term}',${js(session)})">🎫 Issue PIN for New Student</button>
       <button class="btn-secondary" style="width:auto; margin:0;" onclick="lookupSingleStudentPin('${term}',${js(session)})">🔍 Look Up / Reprint One PIN</button>
     </div>
     <div style="overflow-x:auto;">
@@ -2629,6 +2646,96 @@ async function releaseAllSubjects(cls, term, session){
    one student's PIN cannot be used to view another student's
    results even if guessed.
    ============================================================ */
+// Issue PINs to every registered student in the class up front — before
+// exams even happen — rather than waiting for results to be generated
+// and released. This decouples "having a PIN" from "having results":
+// the PIN itself is just a lookup credential; the student won't see any
+// scores until an admin actually releases them later via
+// generateResultPins(), which reuses this same PIN and fills in the
+// real subject data + released:true at that point.
+//
+// If a resultLookup record already exists for a student (e.g. results
+// were already released), it is left untouched here — this function
+// only creates the placeholder for students who don't have one yet.
+async function issueClassPins(cls, term, session){
+  const area = document.getElementById("aResultsArea");
+  const originalHTML = area.innerHTML;
+  area.innerHTML = `<div class="placeholder-note">Issuing PINs for ${esc(cls)}...</div>` + originalHTML;
+
+  try{
+    const studentsSnap = await db.collection("users")
+      .where("role","==","student")
+      .where("class","==",cls)
+      .get();
+
+    const students = [];
+    studentsSnap.forEach(doc => students.push({ uid: doc.id, ...doc.data() }));
+
+    if(students.length === 0){
+      alert("No students found in " + cls + ".");
+      loadResultsForApproval();
+      return;
+    }
+
+    const pinKey = `${term}_${session}`.replace(/\//g, "-");
+    const slips = [];
+
+    for(const s of students){
+      if(!s.admissionNo) continue;
+
+      // Reuse an existing PIN for this student + term + session if one
+      // was already issued (e.g. by a previous run of this same button,
+      // or because results were already generated) — never issue a
+      // second, different PIN.
+      let pin = s.pins && s.pins[pinKey] ? String(s.pins[pinKey]) : "";
+      if(!/^\d{6}$/.test(pin)){
+        pin = generatePIN();
+        await db.collection("users").doc(s.uid).update({
+          [`pins.${pinKey}`]: pin
+        });
+      }
+
+      const safeAdmissionNo = String(s.admissionNo).replace(/\//g, "-");
+      const lookupId = `${safeAdmissionNo}_${pin}`;
+
+      const existing = await db.collection("resultLookup").doc(lookupId).get();
+      if(!existing.exists){
+        // Placeholder only — no scores yet. submitCheckResult() will show
+        // "Results not yet released" for these until an admin runs
+        // "Generate & Print Result PINs" once results are complete.
+        await db.collection("resultLookup").doc(lookupId).set({
+          studentUid: s.uid,
+          studentName: s.name,
+          admissionNo: s.admissionNo,
+          class: cls,
+          level: s.level,
+          term,
+          session,
+          subjects: [],
+          average: "",
+          released: false,
+          generatedAt: new Date().toISOString(),
+          generatedBy: currentUser.uid
+        });
+      }
+
+      slips.push({ name: s.name, admissionNo: s.admissionNo, pin });
+    }
+
+    if(slips.length === 0){
+      alert(`No students in ${cls} have an Admission Number on file yet, so no PINs could be issued.`);
+      loadResultsForApproval();
+      return;
+    }
+
+    printResultPinSlips(slips, cls, term, session);
+    loadResultsForApproval();
+  } catch(e){
+    alert("Error issuing PINs: " + e.message);
+    loadResultsForApproval();
+  }
+}
+
 async function generateResultPins(cls, term, session){
   const area = document.getElementById("aResultsArea");
   const originalHTML = area.innerHTML;
@@ -2785,17 +2892,79 @@ async function lookupSingleStudentPin(term, session){
     }
 
     const s = { uid: snap.docs[0].id, ...snap.docs[0].data() };
-    const pinKey = `${term}_${session}`;
+    // Must match the sanitization used everywhere a PIN is stored/created
+    // (issueClassPins, generateResultPins) — session strings like
+    // "2025/2026" contain '/', which must become '-' or this lookup will
+    // silently miss a PIN that actually exists.
+    const pinKey = `${term}_${session}`.replace(/\//g, "-");
     const pin = s.pins && s.pins[pinKey] ? String(s.pins[pinKey]) : "";
 
     if(!/^\d{6}$/.test(pin)){
-      alert(`No PIN has been generated yet for ${s.name} (${admissionNo.trim()}) for ${term} · ${session}.\n\nUse "Generate & Print Result PINs" for their class first — that also creates this student's PIN.`);
+      alert(`No PIN has been generated yet for ${s.name} (${admissionNo.trim()}) for ${term} · ${session}.\n\nUse "Issue PINs to Whole Class" or "Generate & Print Result PINs" first — or use "Issue PIN for New Student" to create just this one.`);
       return;
     }
 
     printResultPinSlips([{ name: s.name, admissionNo: s.admissionNo, pin }], s.class, term, session);
   } catch(e){
     alert("Error looking up PIN: " + e.message);
+  }
+}
+
+// For a student added to the class after "Issue PINs to Whole Class" was
+// already run for this term/session — issues just their PIN on request,
+// without needing to re-run the whole-class action. Same placeholder
+// (released:false, no scores) behavior as issueClassPins().
+async function issueSinglePin(term, session){
+  const admissionNo = prompt("Enter the new student's Admission Number:");
+  if(!admissionNo || !admissionNo.trim()) return;
+
+  try{
+    const snap = await db.collection("users")
+      .where("role","==","student")
+      .where("admissionNo","==",admissionNo.trim())
+      .limit(1)
+      .get();
+
+    if(snap.empty){
+      alert("No student found with that Admission Number.");
+      return;
+    }
+
+    const s = { uid: snap.docs[0].id, ...snap.docs[0].data() };
+    const pinKey = `${term}_${session}`.replace(/\//g, "-");
+
+    let pin = s.pins && s.pins[pinKey] ? String(s.pins[pinKey]) : "";
+    if(!/^\d{6}$/.test(pin)){
+      pin = generatePIN();
+      await db.collection("users").doc(s.uid).update({
+        [`pins.${pinKey}`]: pin
+      });
+    }
+
+    const safeAdmissionNo = String(s.admissionNo).replace(/\//g, "-");
+    const lookupId = `${safeAdmissionNo}_${pin}`;
+
+    const existing = await db.collection("resultLookup").doc(lookupId).get();
+    if(!existing.exists){
+      await db.collection("resultLookup").doc(lookupId).set({
+        studentUid: s.uid,
+        studentName: s.name,
+        admissionNo: s.admissionNo,
+        class: s.class,
+        level: s.level,
+        term,
+        session,
+        subjects: [],
+        average: "",
+        released: false,
+        generatedAt: new Date().toISOString(),
+        generatedBy: currentUser.uid
+      });
+    }
+
+    printResultPinSlips([{ name: s.name, admissionNo: s.admissionNo, pin }], s.class, term, session);
+  } catch(e){
+    alert("Error issuing PIN: " + e.message);
   }
 }
 
@@ -3136,7 +3305,7 @@ async function decideAdmission(admissionId, decision, level){
 
 function printResultPinSlips(slips, cls, term, session){
   const cards = slips.map(s => `
-    <div style="border:2px dashed #888; border-radius:8px; padding:12px; page-break-inside:avoid; break-inside:avoid;">
+    <div style="border:2px dashed #888; border-radius:8px; padding:12px; margin-bottom:10px; page-break-inside:avoid; break-inside:avoid; display:inline-block; width:100%;">
       <div style="font-weight:700; font-size:14px;">${esc(s.name)}</div>
       <div style="font-size:12px; margin-top:3px;">Admission No: <strong>${esc(s.admissionNo)}</strong></div>
       <div style="font-size:12px;">Class: ${esc(cls)} &nbsp;·&nbsp; ${esc(term)} &nbsp;·&nbsp; ${esc(session)}</div>
@@ -3145,19 +3314,20 @@ function printResultPinSlips(slips, cls, term, session){
     </div>
   `).join("");
 
-  // A 2-column grid fits roughly twice as many slips per A4 sheet as a
-  // single full-width column, and the dashed borders make each slip easy
-  // to cut apart for handing out individually.
+  // A 3-column layout using CSS multi-columns (not grid) fills each
+  // column top-to-bottom before moving to the next — e.g. slips 1-8 down
+  // column 1, 9-16 down column 2, etc. — like a newspaper. This is what
+  // "3 columns, numbers going down" means in practice, as opposed to a
+  // grid which would instead go left-to-right row by row.
   openPrintWindow(`
     <style>
       @page{ size: A4; margin: 12mm; }
       .pin-slip-grid{
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 10px;
+        column-count: 3;
+        column-gap: 10px;
       }
       @media print{
-        .pin-slip-grid{ grid-template-columns: 1fr 1fr; }
+        .pin-slip-grid{ column-count: 3; }
       }
     </style>
     <div style="text-align:center; margin-bottom:14px;">
